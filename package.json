@@ -1,0 +1,20 @@
+{
+  "name": "family-chat",
+  "version": "1.0.0",
+  "description": "Family chat application",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "body-parser": "^1.20.2",
+    "crypto-js": "^4.2.0",
+    "express": "^4.19.2",
+    "express-session": "^1.18.0",
+    "mongoose": "^8.3.0",
+    "socket.io": "^4.7.5"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}
