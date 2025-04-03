@@ -7,7 +7,10 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "bcrypt": "^5.1.1",
     "body-parser": "^1.20.2",
+    "compression": "^1.7.4",
+    "connect-mongo": "^5.1.0",
     "crypto-js": "^4.2.0",
     "express": "^4.19.2",
     "express-session": "^1.18.0",
