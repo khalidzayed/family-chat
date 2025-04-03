@@ -45,7 +45,7 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://khalidzayed9:Mihyar%4
   .catch(err => console.error('فشل الاتصال بـ MongoDB:', err));
 
 const UserSchema = new mongoose.Schema({
-  username: { type: String, unique: true, required: true },
+  username: { type  type: String, unique: true, required: true },
   password: { type: String, required: true }
 });
 
@@ -108,7 +108,7 @@ app.get('/api/messages', isAuthenticated, async (req, res) => {
   }
 });
 
-app.get('/api/users', isAuthenticated, async (req, res) => {
+app.get('/api/users', isAuthenticated, async (req,م res) => {
   try {
     const users = await User.find({}, 'username');
     res.json(users);
