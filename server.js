@@ -6,72 +6,95 @@ const bodyParser = require('body-parser');
 const session = require('express-session');
 const mongoose = require('mongoose');
 const CryptoJS = require('crypto-js');
+const MongoStore = require('connect-mongo');
+const bcrypt = require('bcrypt');
+const compression = require('compression');
 
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
 
-// الاتصال بـ MongoDB Atlas (استخدم متغير بيئة)
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost/family-chat')
-  .then(() => console.log('متصل بـ MongoDB بنجاح'))
-  .catch(err => console.error('فشل الاتصال بـ MongoDB:', err));
-
-// نموذج المستخدم
-const UserSchema = new mongoose.Schema({
-  username: { type: String, unique: true },
-  password: String
-});
-const User = mongoose.model('User', UserSchema);
-
-// نموذج الرسائل
-const MessageSchema = new mongoose.Schema({
-  username: String,
-  message: String,
-  timestamp: { type: Date, default: Date.now }
-});
-const Message = mongoose.model('Message', MessageSchema);
-
-// إعداد Middleware
+app.use(compression());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static(__dirname));
 app.use(session({
   secret: process.env.SESSION_SECRET || 'family-chat-secret',
   resave: false,
   saveUninitialized: false,
-  cookie: { secure: false } // غيّر إلى true عند HTTPS
+  store: MongoStore.create({
+    mongoUrl: process.env.MONGODB_URI || 'mongodb://localhost/family-chat',
+    collectionName: 'sessions',
+    ttl: 24 * 60 * 60
+  }),
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000
+  }
 }));
 
-// مفتاح التشفير
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'secret-key-32-chars-long12345678';
 
-// Middleware للتحقق من تسجيل الدخول
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost/family-chat', {
+  serverSelectionTimeoutMS: 5000
+})
+  .then(() => {
+    console.log('متصل بـ MongoDB بنجاح');
+    initializeUsers();
+  })
+  .catch(err => console.error('فشل الاتصال بـ MongoDB:', err));
+
+const UserSchema = new mongoose.Schema({
+  username: { type: String, unique: true, required: true },
+  password: { type: String, required: true }
+});
+
+UserSchema.pre('save', async function(next) {
+  try {
+    if (this.isModified('password') || this.isNew) {
+      console.log(`جاري تشفير كلمة المرور لـ ${this.username}`);
+      const salt = await bcrypt.genSalt(10);
+      this.password = await bcrypt.hash(this.password, salt);
+      console.log(`تم تشفير كلمة المرور لـ ${this.username} بنجاح`);
+    }
+    next();
+  } catch (err) {
+    console.error('فشل تشفير كلمة المرور:', err.message);
+    next(err);
+  }
+});
+
+const User = mongoose.model('User', UserSchema);
+
+const MessageSchema = new mongoose.Schema({
+  username: { type: String, required: true },
+  message: { type: String, required: true },
+  timestamp: { type: Date, default: Date.now }
+});
+const Message = mongoose.model('Message', MessageSchema);
+
 function isAuthenticated(req, res, next) {
   if (req.session.user) return next();
   res.redirect('/');
 }
 
-// صفحة تسجيل الدخول
 app.get('/', (req, res) => {
   if (req.session.user) return res.redirect('/chat');
   res.sendFile(path.join(__dirname, 'login.html'));
 });
 
-// صفحة المحادثة
 app.get('/chat', isAuthenticated, (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// صفحة إدارة المستخدمين
 app.get('/manage-users', isAuthenticated, (req, res) => {
   res.sendFile(path.join(__dirname, 'manage-users.html'));
 });
 
-// API لجلب اسم المستخدم
 app.get('/api/username', isAuthenticated, (req, res) => {
   res.json({ username: req.session.user });
 });
 
-// API لجلب الرسائل السابقة
 app.get('/api/messages', isAuthenticated, async (req, res) => {
   try {
     const messages = await Message.find().sort({ timestamp: 1 }).limit(50);
@@ -85,36 +108,60 @@ app.get('/api/messages', isAuthenticated, async (req, res) => {
   }
 });
 
-// API لجلب المستخدمين
 app.get('/api/users', isAuthenticated, async (req, res) => {
-  const users = await User.find({}, 'username');
-  res.json(users);
-});
-
-// API لإضافة مستخدم
-app.post('/api/users', isAuthenticated, async (req, res) => {
-  const { username, password } = req.body;
   try {
-    const user = new User({ username, password });
-    await user.save();
-    res.status(201).send('تم إضافة المستخدم');
+    const users = await User.find({}, 'username');
+    res.json(users);
   } catch (err) {
-    res.status(400).send('اسم المستخدم موجود بالفعل');
+    res.status(500).json({ error: 'فشل جلب المستخدمين' });
   }
 });
 
-// API لحذف مستخدم
-app.delete('/api/users/:username', isAuthenticated, async (req, res) => {
-  await User.deleteOne({ username: req.params.username });
-  res.status(200).send('تم حذف المستخدم');
+app.post('/api/users', isAuthenticated, async (req, res) => {
+  const { username, password } = req.body;
+  console.log('محاولة إضافة مستخدم:', { username, password });
+  if (!username || !password) {
+    console.error('البيانات ناقصة:', { username, password });
+    return res.status(400).send('اسم المستخدم وكلمة المرور مطلوبان');
+  }
+  try {
+    const user = new User({ username, password });
+    await user.save();
+    console.log('تم إضافة المستخدم بنجاح:', username);
+    res.status(201).send('تم إضافة المستخدم');
+  } catch (err) {
+    console.error('فشل إضافة المستخدم:', err.message);
+    res.status(400).send('اسم المستخدم موجود بالفعل أو خطأ آخر: ' + err.message);
+  }
 });
 
-// معالجة تسجيل الدخول
+app.delete('/api/users/:username', isAuthenticated, async (req, res) => {
+  try {
+    await User.deleteOne({ username: req.params.username });
+    res.status(200).send('تم حذف المستخدم');
+  } catch (err) {
+    res.status(500).send('فشل حذف المستخدم');
+  }
+});
+
+app.delete('/api/messages', isAuthenticated, async (req, res) => {
+  const { message } = req.body;
+  try {
+    const [username, msgWithTime] = message.split(' [');
+    const msg = msgWithTime.split(']: ')[1];
+    const encryptedMsg = CryptoJS.AES.encrypt(msg, ENCRYPTION_KEY).toString();
+    await Message.deleteOne({ username, message: encryptedMsg });
+    res.status(200).send('تم حذف الرسالة');
+  } catch (err) {
+    res.status(500).send('فشل حذف الرسالة');
+  }
+});
+
 app.post('/login', async (req, res) => {
   const { username, password } = req.body;
   try {
-    const user = await User.findOne({ username, password });
-    if (user) {
+    const user = await User.findOne({ username });
+    if (user && await bcrypt.compare(password, user.password)) {
       req.session.user = username;
       res.redirect('/chat');
     } else {
@@ -125,13 +172,11 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// تسجيل الخروج
 app.get('/logout', (req, res) => {
   req.session.destroy();
   res.redirect('/');
 });
 
-// إدارة WebSocket
 const connectedUsers = new Set();
 io.use((socket, next) => {
   const username = socket.handshake.query.username;
@@ -153,7 +198,8 @@ io.on('connection', async (socket) => {
     const encryptedMsg = CryptoJS.AES.encrypt(msg, ENCRYPTION_KEY).toString();
     const message = new Message({ username: socket.username, message: encryptedMsg });
     await message.save();
-    io.emit('message', `${socket.username}: ${msg}`);
+    const currentTime = new Date().toLocaleTimeString('ar-EG');
+    io.emit('message', `${socket.username} [${currentTime}]: ${msg}`);
   });
 
   socket.on('disconnect', () => {
@@ -163,23 +209,32 @@ io.on('connection', async (socket) => {
   });
 });
 
-// تشغيل الخادم
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`الخادم يعمل على المنفذ ${PORT}`);
 });
 
-// إضافة مستخدمين أوليين
 async function initializeUsers() {
   const initialUsers = [
     { username: 'احمد', password: '1234' },
     { username: 'فاطمة', password: '5678' },
     { username: 'محمد', password: '9012' }
   ];
-  for (const user of initialUsers) {
-    if (!(await User.findOne({ username: user.username }))) {
-      await new User(user).save();
+
+  try {
+    console.log('بدء إضافة المستخدمين الأوليين...');
+    for (const user of initialUsers) {
+      const existingUser = await User.findOne({ username: user.username });
+      if (!existingUser) {
+        const newUser = new User(user);
+        await newUser.save();
+        console.log(`تم إضافة المستخدم: ${user.username} بكلمة مرور مشفرة`);
+      } else {
+        console.log(`المستخدم ${user.username} موجود بالفعل`);
+      }
     }
+    console.log('اكتملت عملية إضافة المستخدمين الأوليين');
+  } catch (err) {
+    console.error('فشل إضافة المستخدمين الأوليين:', err.message);
   }
 }
-initializeUsers();
