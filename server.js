@@ -108,7 +108,7 @@ app.get('/api/messages', isAuthenticated, async (req, res) => {
   }
 });
 
-app.get('/api/users', isAuthenticated, async (req,م res) => {
+app.get('/api/users', isAuthenticated, async (req, res) => {
   try {
     const users = await User.find({}, 'username');
     res.json(users);
