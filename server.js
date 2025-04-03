@@ -15,7 +15,7 @@ const server = http.createServer(app);
 const io = socketIo(server);
 
 app.use(compression());
-app.use(bodyParser.urlencoded({ extended: true })); // تأكد من أن body-parser مُهيأ بشكل صحيح
+app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static(__dirname));
 app.use(session({
   secret: process.env.SESSION_SECRET || 'family-chat-secret',
@@ -74,7 +74,9 @@ const MessageSchema = new mongoose.Schema({
 const Message = mongoose.model('Message', MessageSchema);
 
 function isAuthenticated(req, res, next) {
+  console.log('التحقق من الجلسة:', req.session); // تسجيل لتتبع الجلسة
   if (req.session.user) return next();
+  console.log('الجلسة غير موجودة، إعادة توجيه إلى /');
   res.redirect('/');
 }
 
@@ -84,6 +86,7 @@ app.get('/', (req, res) => {
 });
 
 app.get('/chat', isAuthenticated, (req, res) => {
+  console.log('الوصول إلى /chat لـ:', req.session.user);
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
@@ -92,7 +95,12 @@ app.get('/manage-users', isAuthenticated, (req, res) => {
 });
 
 app.get('/api/username', isAuthenticated, (req, res) => {
-  res.json({ username: req.session.user });
+  console.log('طلب /api/username، الجلسة:', req.session.user);
+  if (req.session.user) {
+    res.json({ username: req.session.user });
+  } else {
+    res.status(401).json({ error: 'غير مصادق' });
+  }
 });
 
 app.get('/api/messages', isAuthenticated, async (req, res) => {
@@ -163,7 +171,7 @@ app.delete('/api/messages', isAuthenticated, async (req, res) => {
 
 app.post('/login', async (req, res) => {
   const { username, password } = req.body;
-  console.log('البيانات المستلمة:', { username, password }); // تسجيل لتتبع البيانات
+  console.log('البيانات المستلمة:', { username, password });
   if (!username || !password) {
     console.log('البيانات ناقصة:', { username, password });
     return res.status(400).send('اسم المستخدم وكلمة المرور مطلوبان. <a href="/">عودة</a>');
@@ -231,6 +239,7 @@ io.on('connection', async (socket) => {
     io.emit('users', Array.from(connectedUsers));
   });
 });
+
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`الخادم يعمل على المنفذ ${PORT}`);
