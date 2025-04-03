@@ -45,7 +45,7 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://khalidzayed9:Mihyar%4
   .catch(err => console.error('فشل الاتصال بـ MongoDB:', err));
 
 const UserSchema = new mongoose.Schema({
-  username: { type  type: String, unique: true, required: true },
+  username: { type: String, unique: true, required: true },
   password: { type: String, required: true }
 });
 
