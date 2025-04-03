@@ -6,18 +6,48 @@
   <title>تسجيل الدخول - محادثة العائلة</title>
   <style>
     body { font-family: Arial, sans-serif; direction: rtl; padding: 20px; background-color: #f4f4f4; }
-    form { max-width: 300px; margin: 0 auto; }
-    input { width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ddd; border-radius: 4px; }
+    form { max-width: 300px; margin: 0 auto; background: white; padding: 20px; border-radius: 5px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+    input { width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
     button { padding: 8px; width: 100%; background-color: #4CAF50; color: white; border: none; border-radius: 4px; cursor: pointer; }
     button:hover { background-color: #45a049; }
+    #error { color: #f44336; margin: 10px 0; text-align: center; }
   </style>
 </head>
 <body>
   <h1>تسجيل الدخول</h1>
-  <form action="/login" method="POST">
-    <input type="text" name="username" placeholder="اسم المستخدم" required>
-    <input type="password" name="password" placeholder="كلمة المرور" required>
+  <form id="loginForm">
+    <input type="text" id="username" placeholder="اسم المستخدم" required>
+    <input type="password" id="password" placeholder="كلمة المرور" required>
+    <div id="error"></div>
     <button type="submit">دخول</button>
   </form>
+
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value.trim();
+      const errorDiv = document.getElementById('error');
+
+      fetch('/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`
+      })
+      .then(res => {
+        if (res.redirected) {
+          window.location.href = res.url;
+        } else {
+          return res.text();
+        }
+      })
+      .then(text => {
+        if (text) errorDiv.textContent = text;
+      })
+      .catch(err => {
+        errorDiv.textContent = 'حدث خطأ أثناء تسجيل الدخول';
+      });
+    });
+  </script>
 </body>
 </html>
