@@ -22,7 +22,7 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   store: MongoStore.create({
-    mongoUrl: process.env.MONGODB_URI || 'mongodb://localhost/family-chat',
+    mongoUrl: process.env.MONGODB_URI || 'mongodb+srv://khalidzayed9:Mihyar%401994@cluster0.oontoc8.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0',
     collectionName: 'sessions',
     ttl: 24 * 60 * 60
   }),
@@ -35,7 +35,7 @@ app.use(session({
 
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'secret-key-32-chars-long12345678';
 
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost/family-chat', {
+mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://khalidzayed9:Mihyar%401994@cluster0.oontoc8.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0', {
   serverSelectionTimeoutMS: 5000
 })
   .then(() => {
