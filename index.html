@@ -53,15 +53,24 @@
     }
 
     fetch('/api/username')
-      .then(response => response.json())
+      .then(response => {
+        if (!response.ok) {
+          throw new Error('فشل في جلب اسم المستخدم: ' + response.statusText);
+        }
+        return response.json();
+      })
       .then(data => {
         username = data.username;
         console.log('اسم المستخدم المسجل:', username);
+        document.getElementById('status').textContent = `مرحبًا ${username}`;
         initializeSocket();
       })
       .catch(err => {
         console.error('خطأ في جلب اسم المستخدم:', err);
-        document.getElementById('status').textContent = 'فشل في جلب اسم المستخدم';
+        document.getElementById('status').textContent = 'فشل في جلب اسم المستخدم، يرجى تسجيل الدخول مرة أخرى';
+        setTimeout(() => {
+          window.location.href = '/logout';
+        }, 3000);
       });
 
     function initializeSocket() {
@@ -69,7 +78,7 @@
 
       socket.on('connect', () => {
         console.log('تم الاتصال بالـ WebSocket باسم:', username);
-        document.getElementById('status').textContent = 'تم الاتصال بالخادم';
+        document.getElementById('status').textContent = `مرحبًا ${username}، تم الاتصال بالخادم`;
       });
 
       socket.on('connect_error', (err) => {
@@ -77,7 +86,6 @@
         document.getElementById('status').textContent = 'فشل الاتصال بالخادم';
       });
 
-      // جلب الرسائل السابقة
       fetch('/api/messages')
         .then(response => response.json())
         .then(messages => {
@@ -183,8 +191,8 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message })
       })
-      .then(() => location.reload())
-      .catch(err => console.error('خطأ في حذف الرسالة:', err));
+        .then(() => location.reload())
+        .catch(err => console.error('خطأ في حذف الرسالة:', err));
     }
 
     function getRandomColor() {
