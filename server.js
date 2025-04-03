@@ -208,13 +208,21 @@ io.on('connection', async (socket) => {
 
   socket.on('message', async (msg) => {
     console.log('رسالة مستلمة من:', socket.username, 'النص:', msg);
+    if (!msg || msg.trim() === '') {
+      console.log('الرسالة فارغة، تم تجاهلها');
+      return;
+    }
     const encryptedMsg = CryptoJS.AES.encrypt(msg, ENCRYPTION_KEY).toString();
     const message = new Message({ username: socket.username, message: encryptedMsg });
-    await message.save();
-    const currentTime = new Date().toLocaleTimeString('ar-EG');
-    const fullMessage = `${socket.username} [${currentTime}]: ${msg}`;
-    console.log('رسالة مرسلة:', fullMessage);
-    io.emit('message', fullMessage);
+    try {
+      await message.save();
+      const currentTime = new Date().toLocaleTimeString('ar-EG');
+      const fullMessage = `${socket.username} [${currentTime}]: ${msg}`;
+      console.log('رسالة مرسلة:', fullMessage);
+      io.emit('message', fullMessage);
+    } catch (err) {
+      console.error('خطأ أثناء حفظ الرسالة:', err);
+    }
   });
 
   socket.on('disconnect', () => {
@@ -223,7 +231,6 @@ io.on('connection', async (socket) => {
     io.emit('users', Array.from(connectedUsers));
   });
 });
-
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`الخادم يعمل على المنفذ ${PORT}`);
