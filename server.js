@@ -15,7 +15,7 @@ const server = http.createServer(app);
 const io = socketIo(server);
 
 app.use(compression());
-app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.urlencoded({ extended: true })); // تأكد من أن body-parser مُهيأ بشكل صحيح
 app.use(express.static(__dirname));
 app.use(session({
   secret: process.env.SESSION_SECRET || 'family-chat-secret',
@@ -98,7 +98,7 @@ app.get('/api/username', isAuthenticated, (req, res) => {
 app.get('/api/messages', isAuthenticated, async (req, res) => {
   try {
     const messages = await Message.find().sort({ timestamp: 1 }).limit(50);
-    console.log('الرسائل المستردة:', messages); // لتتبع البيانات
+    console.log('الرسائل المستردة:', messages);
     const decryptedMessages = messages.map(msg => ({
       ...msg._doc,
       message: CryptoJS.AES.decrypt(msg.message, ENCRYPTION_KEY).toString(CryptoJS.enc.Utf8)
@@ -113,7 +113,7 @@ app.get('/api/messages', isAuthenticated, async (req, res) => {
 app.get('/api/users', isAuthenticated, async (req, res) => {
   try {
     const users = await User.find({}, 'username');
-    console.log('المستخدمون المستردون:', users); // لتتبع البيانات
+    console.log('المستخدمون المستردون:', users);
     res.json(users);
   } catch (err) {
     console.error('خطأ في جلب المستخدمين:', err);
@@ -163,16 +163,20 @@ app.delete('/api/messages', isAuthenticated, async (req, res) => {
 
 app.post('/login', async (req, res) => {
   const { username, password } = req.body;
-  console.log('محاولة تسجيل الدخول لـ:', username); // تسجيل لتتبع
+  console.log('البيانات المستلمة:', { username, password }); // تسجيل لتتبع البيانات
+  if (!username || !password) {
+    console.log('البيانات ناقصة:', { username, password });
+    return res.status(400).send('اسم المستخدم وكلمة المرور مطلوبان. <a href="/">عودة</a>');
+  }
   try {
     const user = await User.findOne({ username });
     if (user && await bcrypt.compare(password, user.password)) {
       req.session.user = username;
-      console.log('تم تسجيل الدخول بنجاح لـ:', username); // تسجيل نجاح
+      console.log('تم تسجيل الدخول بنجاح لـ:', username);
       res.redirect('/chat');
     } else {
-      console.log('فشل تسجيل الدخول لـ:', username); // تسجيل فشل
-      res.send('اسم المستخدم أو كلمة المرور غير صحيحة. <a href="/">عودة</a>');
+      console.log('فشل تسجيل الدخول لـ:', username);
+      res.status(401).send('اسم المستخدم أو كلمة المرور غير صحيحة. <a href="/">عودة</a>');
     }
   } catch (err) {
     console.error('خطأ أثناء تسجيل الدخول:', err);
