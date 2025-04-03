@@ -15,7 +15,7 @@
 <body>
   <div class="login-container">
     <h2>تسجيل الدخول</h2>
-    <form action="/login" method="POST">
+    <form id="loginForm">
       <input type="text" name="username" placeholder="اسم المستخدم" required>
       <input type="password" name="password" placeholder="كلمة المرور" required>
       <button type="submit">تسجيل الدخول</button>
@@ -24,18 +24,27 @@
   </div>
 
   <script>
-    document.querySelector('form').addEventListener('submit', async (e) => {
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const formData = new FormData(e.target);
-      const response = await fetch('/login', {
-        method: 'POST',
-        body: formData
-      });
-      const text = await response.text();
-      if (response.status === 200) {
-        window.location.href = '/chat';
-      } else {
-        document.getElementById('error').textContent = text;
+      const data = new URLSearchParams(formData); // تحويل البيانات إلى application/x-www-form-urlencoded
+      try {
+        const response = await fetch('/login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body: data
+        });
+        if (response.ok) {
+          window.location.href = '/chat';
+        } else {
+          const text = await response.text();
+          document.getElementById('error').textContent = text;
+        }
+      } catch (err) {
+        document.getElementById('error').textContent = 'حدث خطأ أثناء تسجيل الدخول';
+        console.error('خطأ في تسجيل الدخول:', err);
       }
     });
   </script>
