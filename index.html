@@ -21,6 +21,7 @@
     .message span { font-size: 12px; color: #777; }
     .delete-message { background-color: #f44336; margin-right: 10px; padding: 5px 10px; }
     .delete-message:hover { background-color: #da190b; }
+    #status { color: #333; margin-top: 10px; }
   </style>
 </head>
 <body>
@@ -35,86 +36,97 @@
   </div>
   <div>
     <input type="text" id="messageInput" placeholder="اكتب رسالتك هنا">
-    <button onclick="sendMessage()">إرسال</button>
+    <button id="sendBtn" onclick="sendMessage()">إرسال</button>
     <button id="logoutBtn" onclick="window.location.href='/logout'">تسجيل الخروج</button>
   </div>
+  <div id="status"></div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
-   let username;
-  const colors = {};
-  const notificationSound = new Audio('https://www.soundjay.com/buttons/beep-01a.mp3');
+    let username;
+    let socket;
+    const colors = {};
+    const notificationSound = new Audio('https://www.soundjay.com/buttons/beep-01a.mp3');
 
-  if ('Notification' in window && Notification.permission !== 'granted') {
-    Notification.requestPermission();
-  }
+    if ('Notification' in window && Notification.permission !== 'granted') {
+      Notification.requestPermission();
+    }
 
-  fetch('/api/username')
-    .then(response => response.json())
-    .then(data => {
-      username = data.username;
-      console.log('اسم المستخدم المسجل:', username);
-      initializeSocket(username);
-    })
-    .catch(err => console.error('خطأ في جلب اسم المستخدم:', err));
-
-  function initializeSocket(username) {
-    const socket = io({ query: { username: username } });
-
-    socket.on('connect', () => {
-      console.log('تم الاتصال بالـ WebSocket باسم:', username);
-    });
-
-    socket.on('connect_error', (err) => {
-      console.error('خطأ في الاتصال بالـ WebSocket:', err);
-    });
-
-    // جلب الرسائل السابقة
-    fetch('/api/messages')
+    fetch('/api/username')
       .then(response => response.json())
-      .then(messages => {
-        console.log('الرسائل المستلمة:', messages);
-        if (messages.length === 0) {
-          console.log('لا توجد رسائل مسبقة');
-        }
-        messages.forEach(msg => {
-          const currentTime = new Date(msg.timestamp).toLocaleTimeString('ar-EG');
-          displayMessage(`${msg.username} [${currentTime}]: ${msg.message}`, msg.username);
-        });
+      .then(data => {
+        username = data.username;
+        console.log('اسم المستخدم المسجل:', username);
+        initializeSocket();
       })
-      .catch(err => console.error('خطأ في جلب الرسائل:', err));
+      .catch(err => {
+        console.error('خطأ في جلب اسم المستخدم:', err);
+        document.getElementById('status').textContent = 'فشل في جلب اسم المستخدم';
+      });
 
-    window.sendMessage = function() {
-      const input = document.getElementById('messageInput');
-      const message = input.value.trim();
-      if (message) {
-        socket.emit('message', message);
-        input.value = '';
-      }
-    };
+    function initializeSocket() {
+      socket = io({ query: { username: username } });
 
-    socket.on('message', (msg) => {
-      console.log('رسالة مستلمة عبر WebSocket:', msg);
-      const [senderWithTime, text] = msg.split(']: ');
-      const [sender, time] = senderWithTime.split(' [');
-      displayMessage(msg, sender);
-      if (sender !== username) {
-        notificationSound.play();
-        if ('Notification' in window && Notification.permission === 'granted') {
-          new Notification('رسالة جديدة', { body: `${sender}: ${text}`, icon: 'https://www.example.com/icon.png' });
+      socket.on('connect', () => {
+        console.log('تم الاتصال بالـ WebSocket باسم:', username);
+        document.getElementById('status').textContent = 'تم الاتصال بالخادم';
+      });
+
+      socket.on('connect_error', (err) => {
+        console.error('خطأ في الاتصال بالـ WebSocket:', err);
+        document.getElementById('status').textContent = 'فشل الاتصال بالخادم';
+      });
+
+      // جلب الرسائل السابقة
+      fetch('/api/messages')
+        .then(response => response.json())
+        .then(messages => {
+          console.log('الرسائل المستلمة:', messages);
+          if (messages.length === 0) {
+            console.log('لا توجد رسائل مسبقة');
+          }
+          messages.forEach(msg => {
+            const currentTime = new Date(msg.timestamp).toLocaleTimeString('ar-EG');
+            displayMessage(`${msg.username} [${currentTime}]: ${msg.message}`, msg.username);
+          });
+        })
+        .catch(err => console.error('خطأ في جلب الرسائل:', err));
+
+      window.sendMessage = function() {
+        const input = document.getElementById('messageInput');
+        const message = input.value.trim();
+        if (message && socket) {
+          console.log('محاولة إرسال رسالة:', message);
+          socket.emit('message', message);
+          input.value = '';
+        } else {
+          console.log('فشل في إرسال الرسالة: الرسالة فارغة أو الاتصال غير موجود');
+          document.getElementById('status').textContent = 'فشل في إرسال الرسالة';
         }
-      }
-    });
+      };
 
-    socket.on('users', (users) => {
-      console.log('قائمة المستخدمين المستلمة:', users);
-      updateUserList(users);
-    });
+      socket.on('message', (msg) => {
+        console.log('رسالة مستلمة عبر WebSocket:', msg);
+        const [senderWithTime, text] = msg.split(']: ');
+        const [sender, time] = senderWithTime.split(' [');
+        displayMessage(msg, sender);
+        if (sender !== username) {
+          notificationSound.play();
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification('رسالة جديدة', { body: `${sender}: ${text}`, icon: 'https://www.example.com/icon.png' });
+          }
+        }
+      });
 
-    document.getElementById('messageInput').addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') sendMessage();
-    });
-  }
+      socket.on('users', (users) => {
+        console.log('قائمة المستخدمين المستلمة:', users);
+        updateUserList(users);
+      });
+
+      document.getElementById('messageInput').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') sendMessage();
+      });
+    }
 
     function displayMessage(message, sender) {
       const chat = document.getElementById('chat');
