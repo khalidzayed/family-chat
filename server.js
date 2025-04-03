@@ -163,15 +163,19 @@ app.delete('/api/messages', isAuthenticated, async (req, res) => {
 
 app.post('/login', async (req, res) => {
   const { username, password } = req.body;
+  console.log('محاولة تسجيل الدخول لـ:', username); // تسجيل لتتبع
   try {
     const user = await User.findOne({ username });
     if (user && await bcrypt.compare(password, user.password)) {
       req.session.user = username;
+      console.log('تم تسجيل الدخول بنجاح لـ:', username); // تسجيل نجاح
       res.redirect('/chat');
     } else {
+      console.log('فشل تسجيل الدخول لـ:', username); // تسجيل فشل
       res.send('اسم المستخدم أو كلمة المرور غير صحيحة. <a href="/">عودة</a>');
     }
   } catch (err) {
+    console.error('خطأ أثناء تسجيل الدخول:', err);
     res.status(500).send('حدث خطأ أثناء تسجيل الدخول. <a href="/">عودة</a>');
   }
 });
