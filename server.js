@@ -98,12 +98,14 @@ app.get('/api/username', isAuthenticated, (req, res) => {
 app.get('/api/messages', isAuthenticated, async (req, res) => {
   try {
     const messages = await Message.find().sort({ timestamp: 1 }).limit(50);
+    console.log('الرسائل المستردة:', messages); // لتتبع البيانات
     const decryptedMessages = messages.map(msg => ({
       ...msg._doc,
       message: CryptoJS.AES.decrypt(msg.message, ENCRYPTION_KEY).toString(CryptoJS.enc.Utf8)
     }));
     res.json(decryptedMessages);
   } catch (err) {
+    console.error('خطأ في جلب الرسائل:', err);
     res.status(500).json({ error: 'فشل جلب الرسائل' });
   }
 });
@@ -111,8 +113,10 @@ app.get('/api/messages', isAuthenticated, async (req, res) => {
 app.get('/api/users', isAuthenticated, async (req, res) => {
   try {
     const users = await User.find({}, 'username');
+    console.log('المستخدمون المستردون:', users); // لتتبع البيانات
     res.json(users);
   } catch (err) {
+    console.error('خطأ في جلب المستخدمين:', err);
     res.status(500).json({ error: 'فشل جلب المستخدمين' });
   }
 });
@@ -189,23 +193,26 @@ io.use((socket, next) => {
 
 io.on('connection', async (socket) => {
   connectedUsers.add(socket.username);
+  console.log('مستخدم متصل:', socket.username);
   io.emit('users', Array.from(connectedUsers));
 
-  console.log(`${socket.username} متصل`);
   socket.emit('message', `مرحبًا ${socket.username}!`);
 
   socket.on('message', async (msg) => {
+    console.log('رسالة مستلمة من:', socket.username, 'النص:', msg);
     const encryptedMsg = CryptoJS.AES.encrypt(msg, ENCRYPTION_KEY).toString();
     const message = new Message({ username: socket.username, message: encryptedMsg });
     await message.save();
     const currentTime = new Date().toLocaleTimeString('ar-EG');
-    io.emit('message', `${socket.username} [${currentTime}]: ${msg}`);
+    const fullMessage = `${socket.username} [${currentTime}]: ${msg}`;
+    console.log('رسالة مرسلة:', fullMessage);
+    io.emit('message', fullMessage);
   });
 
   socket.on('disconnect', () => {
     connectedUsers.delete(socket.username);
+    console.log('مستخدم انقطع اتصاله:', socket.username);
     io.emit('users', Array.from(connectedUsers));
-    console.log(`${socket.username} انقطع اتصاله`);
   });
 });
 
