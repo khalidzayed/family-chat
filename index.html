@@ -68,9 +68,9 @@
         document.getElementById('status').textContent = `مرحبًا ${username}`;
         initializeSocket();
       })
-      .catch(err => {
+      .catch(err) => {
         console.error('خطأ في جلب اسم المستخدم:', err);
-        document.getElementById('status').textContent = err.message || 'فشل في جلب اسم المستخدم، يرجى تسجيل الدخول مرة أخرى';
+        document.getElementById('status').textContent = 'فشل في جلب اسم المستخدم، يرجى تسجيل الدخول مرة أخرى';
         setTimeout(() => {
           window.location.href = '/logout';
         }, 3000);
