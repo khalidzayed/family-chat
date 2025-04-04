@@ -17,26 +17,30 @@ const io = socketIo(server);
 app.use(compression());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static(__dirname));
+
+// إعداد الجلسة مع تحسينات
 app.use(session({
   secret: process.env.SESSION_SECRET || 'family-chat-secret',
   resave: false,
   saveUninitialized: false,
   store: MongoStore.create({
-    mongoUrl: process.env.MONGODB_URI || 'mongodb+srv://khalidzayed9:Mihyar%401994@cluster0.oontoc8.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0',
+    mongoUrl: process.env.MONGODB_URI || 'mongodb+srv://khalidzayed9:Mihyar%401994@cluster0.oontoc8.mongodb.net/family_chat?retryWrites=true&w=majority&appName=Cluster0',
     collectionName: 'sessions',
     ttl: 24 * 60 * 60,
-    autoRemove: 'native' // تحسين إزالة الجلسات المنتهية
+    autoRemove: 'native'
   }),
   cookie: {
-    secure: process.env.NODE_ENV === 'production', // تأكد من أن هذا يعمل مع Render
+    secure: process.env.NODE_ENV === 'production' ? true : false, // تأكد من أن هذا يعمل مع Render
     httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000
+    maxAge: 24 * 60 * 60 * 1000,
+    sameSite: 'lax' // تحسين التعامل مع الكوكيز عبر المواقع
   }
 }));
 
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'secret-key-32-chars-long12345678';
 
-mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://khalidzayed9:Mihyar%401994@cluster0.oontoc8.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0', {
+// التحقق من اتصال MongoDB
+mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://khalidzayed9:Mihyar%401994@cluster0.oontoc8.mongodb.net/family_chat?retryWrites=true&w=majority&appName=Cluster0', {
   serverSelectionTimeoutMS: 5000
 })
   .then(() => {
@@ -75,14 +79,20 @@ const MessageSchema = new mongoose.Schema({
 const Message = mongoose.model('Message', MessageSchema);
 
 function isAuthenticated(req, res, next) {
-  console.log('التحقق من الجلسة:', req.session);
-  if (req.session.user) return next();
+  console.log('التحقق من الجلسة في isAuthenticated:', req.session);
+  if (req.session.user) {
+    console.log('تم العثور على المستخدم في الجلسة:', req.session.user);
+    return next();
+  }
   console.log('الجلسة غير موجودة، إعادة توجيه إلى /');
   res.redirect('/');
 }
 
 app.get('/', (req, res) => {
-  if (req.session.user) return res.redirect('/chat');
+  if (req.session.user) {
+    console.log('المستخدم موجود في الجلسة، إعادة توجيه إلى /chat:', req.session.user);
+    return res.redirect('/chat');
+  }
   res.sendFile(path.join(__dirname, 'login.html'));
 });
 
@@ -100,7 +110,7 @@ app.get('/api/username', (req, res) => {
   if (req.session.user) {
     res.json({ username: req.session.user });
   } else {
-    res.status(401).json({ error: 'غير مصادق' }); // إرجاع JSON بدلاً من إعادة توجيه
+    res.status(401).json({ error: 'غير مصادق' });
   }
 });
 
@@ -183,8 +193,11 @@ app.post('/login', async (req, res) => {
       req.session.user = username;
       console.log('تم تعيين الجلسة لـ:', username);
       req.session.save((err) => {
-        if (err) console.error('خطأ أثناء حفظ الجلسة:', err);
-        else console.log('تم حفظ الجلسة بنجاح');
+        if (err) {
+          console.error('خطأ أثناء حفظ الجلسة:', err);
+          return res.status(500).send('خطأ أثناء تسجيل الدخول. <a href="/">عودة</a>');
+        }
+        console.log('تم حفظ الجلسة بنجاح لـ:', username);
         res.redirect('/chat');
       });
     } else {
