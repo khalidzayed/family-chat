@@ -15,8 +15,8 @@
     #messageInput { width: 60%; padding: 10px; margin: 10px 0; border: 2px solid #333; border-radius: 5px; font-size: 16px; }
     button { padding: 10px 20px; margin: 0 5px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; }
     button:hover { background-color: #45a049; }
-    #logoutBtn, #refreshBtn { background-color: #f44336; }
-    #logoutBtn:hover, #refreshBtn:hover { background-color: #da190b; }
+    #logoutBtn, #refreshBtn, #enableNotificationsBtn { background-color: #f44336; }
+    #logoutBtn:hover, #refreshBtn:hover, #enableNotificationsBtn:hover { background-color: #da190b; }
     .message { padding: 10px; margin: 5px 0; border-radius: 5px; display: flex; justify-content: space-between; align-items: center; background: #e0e0e0; }
     .message span { font-size: 12px; color: #777; }
     .delete-message { background-color: #f44336; margin-right: 10px; padding: 5px 10px; }
@@ -37,6 +37,7 @@
   <div>
     <input type="text" id="messageInput" placeholder="اكتب رسالتك هنا">
     <button id="sendBtn" onclick="sendMessage()">إرسال</button>
+    <button id="enableNotificationsBtn" onclick="requestNotifications()">تفعيل الإشعارات</button>
     <button id="logoutBtn" onclick="window.location.href='/logout'">تسجيل الخروج</button>
   </div>
   <div id="status"></div>
@@ -70,6 +71,26 @@
           updateUserList(users.map(user => user.username));
         })
         .catch(err => console.error('خطأ في تحديث المستخدمين:', err));
+    }
+
+    function requestNotifications() {
+      if ('Notification' in window) {
+        if (Notification.permission === 'granted') {
+          document.getElementById('status').textContent = 'الإشعارات مفعلة بالفعل';
+        } else if (Notification.permission !== 'denied') {
+          Notification.requestPermission().then(permission => {
+            if (permission === 'granted') {
+              document.getElementById('status').textContent = 'تم تفعيل الإشعارات';
+            } else {
+              document.getElementById('status').textContent = 'تم رفض تفعيل الإشعارات';
+            }
+          });
+        } else {
+          document.getElementById('status').textContent = 'الإشعارات محظورة، يرجى إعادة تعيين الإذن من إعدادات المتصفح';
+        }
+      } else {
+        document.getElementById('status').textContent = 'المتصفح لا يدعم الإشعارات';
+      }
     }
 
     function displayMessage(message, sender) {
@@ -128,10 +149,6 @@
       return color;
     }
 
-    if ('Notification' in window && Notification.permission !== 'granted') {
-      Notification.requestPermission();
-    }
-
     fetch('/api/username')
       .then(response => {
         if (!response.ok) {
@@ -150,7 +167,7 @@
       })
       .catch(err => {
         console.error('خطأ في جلب اسم المستخدم:', err);
-        document.getElementById('status').textContent = 'فشل في جلب اسم المستخدم، يرجى تسجيل الدخول مرة أخرى';
+        document.getElementById('status').textContent = `فشل في جلب اسم المستخدم: ${err.message}، يرجى تسجيل الدخول مرة أخرى`;
         setTimeout(() => {
           window.location.href = '/logout';
         }, 3000);
