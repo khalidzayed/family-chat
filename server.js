@@ -24,10 +24,11 @@ app.use(session({
   store: MongoStore.create({
     mongoUrl: process.env.MONGODB_URI || 'mongodb+srv://khalidzayed9:Mihyar%401994@cluster0.oontoc8.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0',
     collectionName: 'sessions',
-    ttl: 24 * 60 * 60
+    ttl: 24 * 60 * 60,
+    autoRemove: 'native' // تحسين إزالة الجلسات المنتهية
   }),
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
+    secure: process.env.NODE_ENV === 'production', // تأكد من أن هذا يعمل مع Render
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000
   }
@@ -74,7 +75,7 @@ const MessageSchema = new mongoose.Schema({
 const Message = mongoose.model('Message', MessageSchema);
 
 function isAuthenticated(req, res, next) {
-  console.log('التحقق من الجلسة:', req.session); // تسجيل لتتبع الجلسة
+  console.log('التحقق من الجلسة:', req.session);
   if (req.session.user) return next();
   console.log('الجلسة غير موجودة، إعادة توجيه إلى /');
   res.redirect('/');
@@ -94,12 +95,12 @@ app.get('/manage-users', isAuthenticated, (req, res) => {
   res.sendFile(path.join(__dirname, 'manage-users.html'));
 });
 
-app.get('/api/username', isAuthenticated, (req, res) => {
-  console.log('طلب /api/username، الجلسة:', req.session.user);
+app.get('/api/username', (req, res) => {
+  console.log('طلب /api/username، الجلسة:', req.session);
   if (req.session.user) {
     res.json({ username: req.session.user });
   } else {
-    res.status(401).json({ error: 'غير مصادق' });
+    res.status(401).json({ error: 'غير مصادق' }); // إرجاع JSON بدلاً من إعادة توجيه
   }
 });
 
@@ -180,8 +181,12 @@ app.post('/login', async (req, res) => {
     const user = await User.findOne({ username });
     if (user && await bcrypt.compare(password, user.password)) {
       req.session.user = username;
-      console.log('تم تسجيل الدخول بنجاح لـ:', username);
-      res.redirect('/chat');
+      console.log('تم تعيين الجلسة لـ:', username);
+      req.session.save((err) => {
+        if (err) console.error('خطأ أثناء حفظ الجلسة:', err);
+        else console.log('تم حفظ الجلسة بنجاح');
+        res.redirect('/chat');
+      });
     } else {
       console.log('فشل تسجيل الدخول لـ:', username);
       res.status(401).send('اسم المستخدم أو كلمة المرور غير صحيحة. <a href="/">عودة</a>');
@@ -193,8 +198,10 @@ app.post('/login', async (req, res) => {
 });
 
 app.get('/logout', (req, res) => {
-  req.session.destroy();
-  res.redirect('/');
+  req.session.destroy((err) => {
+    if (err) console.error('خطأ أثناء إنهاء الجلسة:', err);
+    res.redirect('/');
+  });
 });
 
 const connectedUsers = new Set();
