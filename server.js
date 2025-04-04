@@ -30,10 +30,10 @@ app.use(session({
     autoRemove: 'native'
   }),
   cookie: {
-    secure: process.env.NODE_ENV === 'production' ? true : false, // تأكد من أن هذا يعمل مع Render
+    secure: false, // Temporarily disable secure to debug
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000,
-    sameSite: 'lax' // تحسين التعامل مع الكوكيز عبر المواقع
+    sameSite: 'lax'
   }
 }));
 
