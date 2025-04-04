@@ -28,6 +28,7 @@
       e.preventDefault();
       const formData = new FormData(e.target);
       const data = new URLSearchParams(formData);
+      console.log('البيانات المرسلة:', Object.fromEntries(data));
       try {
         const response = await fetch('/login', {
           method: 'POST',
