@@ -48,95 +48,28 @@
     const colors = {};
     const notificationSound = new Audio('https://www.soundjay.com/buttons/beep-01a.mp3');
 
-    if ('Notification' in window && Notification.permission !== 'granted') {
-      Notification.requestPermission();
+    // Define functions globally
+    function sendMessage() {
+      const input = document.getElementById('messageInput');
+      const message = input.value.trim();
+      if (message && socket) {
+        console.log('محاولة إرسال رسالة:', message);
+        socket.emit('message', message);
+        input.value = '';
+      } else {
+        console.log('فشل في إرسال الرسالة: الرسالة فارغة أو الاتصال غير موجود');
+        document.getElementById('status').textContent = 'فشل في إرسال الرسالة';
+      }
     }
 
-    fetch('/api/username')
-      .then(response => {
-        if (!response.ok) {
-          throw new Error(`فشل في جلب اسم المستخدم: ${response.status} - ${response.statusText}`);
-        }
-        return response.json();
-      })
-      .then(data => {
-        if (data.error) {
-          throw new Error(data.error);
-        }
-        username = data.username;
-        console.log('اسم المستخدم المسجل:', username);
-        document.getElementById('status').textContent = `مرحبًا ${username}`;
-        initializeSocket();
-      })
-      .catch(err) => {
-        console.error('خطأ في جلب اسم المستخدم:', err);
-        document.getElementById('status').textContent = 'فشل في جلب اسم المستخدم، يرجى تسجيل الدخول مرة أخرى';
-        setTimeout(() => {
-          window.location.href = '/logout';
-        }, 3000);
-      });
-
-    function initializeSocket() {
-      socket = io({ query: { username: username } });
-
-      socket.on('connect', () => {
-        console.log('تم الاتصال بالـ WebSocket باسم:', username);
-        document.getElementById('status').textContent = `مرحبًا ${username}، تم الاتصال بالخادم`;
-      });
-
-      socket.on('connect_error', (err) => {
-        console.error('خطأ في الاتصال بالـ WebSocket:', err);
-        document.getElementById('status').textContent = 'فشل الاتصال بالخادم';
-      });
-
-      fetch('/api/messages')
-        .then(response => response.json())
-        .then(messages => {
-          console.log('الرسائل المستلمة:', messages);
-          if (messages.length === 0) {
-            console.log('لا توجد رسائل مسبقة');
-          }
-          messages.forEach(msg => {
-            const currentTime = new Date(msg.timestamp).toLocaleTimeString('ar-EG');
-            displayMessage(`${msg.username} [${currentTime}]: ${msg.message}`, msg.username);
-          });
+    function refreshUsers() {
+      fetch('/api/users')
+        .then(res => res.json())
+        .then(users => {
+          console.log('المستخدمون بعد التحديث:', users);
+          updateUserList(users.map(user => user.username));
         })
-        .catch(err => console.error('خطأ في جلب الرسائل:', err));
-
-      window.sendMessage = function() {
-        const input = document.getElementById('messageInput');
-        const message = input.value.trim();
-        if (message && socket) {
-          console.log('محاولة إرسال رسالة:', message);
-          socket.emit('message', message);
-          input.value = '';
-        } else {
-          console.log('فشل في إرسال الرسالة: الرسالة فارغة أو الاتصال غير موجود');
-          document.getElementById('status').textContent = 'فشل في إرسال الرسالة';
-        }
-      };
-
-      socket.on('message', (msg) => {
-        console.log('رسالة مستلمة عبر WebSocket:', msg);
-        const [senderWithTime, text] = msg.split(']: ');
-        const [sender, time] = senderWithTime.split(' [');
-        displayMessage(msg, sender);
-        if (sender !== username) {
-          notificationSound.play();
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification('رسالة جديدة', { body: `${sender}: ${text}`, icon: 'https://www.example.com/icon.png' });
-          }
-        }
-      });
-
-      socket.on('users', (users) => {
-        console.log('قائمة المستخدمين المستلمة:', users);
-        updateUserList(users);
-      });
-
-      document.getElementById('messageInput').addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') sendMessage();
-      });
+        .catch(err => console.error('خطأ في تحديث المستخدمين:', err));
     }
 
     function displayMessage(message, sender) {
@@ -178,16 +111,6 @@
       }
     }
 
-    function refreshUsers() {
-      fetch('/api/users')
-        .then(res => res.json())
-        .then(users => {
-          console.log('المستخدمون بعد التحديث:', users);
-          updateUserList(users.map(user => user.username));
-        })
-        .catch(err => console.error('خطأ في تحديث المستخدمين:', err));
-    }
-
     function deleteMessage(message) {
       fetch('/api/messages', {
         method: 'DELETE',
@@ -203,6 +126,84 @@
       let color = '#';
       for (let i = 0; i < 6; i++) color += letters[Math.floor(Math.random() * 16)];
       return color;
+    }
+
+    if ('Notification' in window && Notification.permission !== 'granted') {
+      Notification.requestPermission();
+    }
+
+    fetch('/api/username')
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`فشل في جلب اسم المستخدم: ${response.status} - ${response.statusText}`);
+        }
+        return response.json();
+      })
+      .then(data => {
+        if (data.error) {
+          throw new Error(data.error);
+        }
+        username = data.username;
+        console.log('اسم المستخدم المسجل:', username);
+        document.getElementById('status').textContent = `مرحبًا ${username}`;
+        initializeSocket();
+      })
+      .catch(err => {
+        console.error('خطأ في جلب اسم المستخدم:', err);
+        document.getElementById('status').textContent = 'فشل في جلب اسم المستخدم، يرجى تسجيل الدخول مرة أخرى';
+        setTimeout(() => {
+          window.location.href = '/logout';
+        }, 3000);
+      });
+
+    function initializeSocket() {
+      socket = io({ query: { username: username } });
+
+      socket.on('connect', () => {
+        console.log('تم الاتصال بالـ WebSocket باسم:', username);
+        document.getElementById('status').textContent = `مرحبًا ${username}، تم الاتصال بالخادم`;
+      });
+
+      socket.on('connect_error', (err) => {
+        console.error('خطأ في الاتصال بالـ WebSocket:', err);
+        document.getElementById('status').textContent = 'فشل الاتصال بالخادم';
+      });
+
+      fetch('/api/messages')
+        .then(response => response.json())
+        .then(messages => {
+          console.log('الرسائل المستلمة:', messages);
+          if (messages.length === 0) {
+            console.log('لا توجد رسائل مسبقة');
+          }
+          messages.forEach(msg => {
+            const currentTime = new Date(msg.timestamp).toLocaleTimeString('ar-EG');
+            displayMessage(`${msg.username} [${currentTime}]: ${msg.message}`, msg.username);
+          });
+        })
+        .catch(err => console.error('خطأ في جلب الرسائل:', err));
+
+      socket.on('message', (msg) => {
+        console.log('رسالة مستلمة عبر WebSocket:', msg);
+        const [senderWithTime, text] = msg.split(']: ');
+        const [sender, time] = senderWithTime.split(' [');
+        displayMessage(msg, sender);
+        if (sender !== username) {
+          notificationSound.play();
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification('رسالة جديدة', { body: `${sender}: ${text}`, icon: 'https://www.example.com/icon.png' });
+          }
+        }
+      });
+
+      socket.on('users', (users) => {
+        console.log('قائمة المستخدمين المستلمة:', users);
+        updateUserList(users);
+      });
+
+      document.getElementById('messageInput').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') sendMessage();
+      });
     }
   </script>
 </body>
