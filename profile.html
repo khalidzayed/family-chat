@@ -25,6 +25,9 @@
             border-radius: 50%;
             margin-bottom: 20px;
         }
+        .profile-container input[type="file"] {
+            margin: 10px 0;
+        }
         .profile-container button {
             padding: 10px 20px;
             background-color: #34c759;
@@ -47,14 +50,22 @@
     <div class="profile-container">
         <h2>الملف الشخصي</h2>
         <img id="profilePicture" src="https://res.cloudinary.com/demo/image/upload/v1312461204/sample.jpg" alt="الصورة الشخصية">
-        <button onclick="uploadProfilePicture()">تحديث الصورة</button>
+        <form id="profileForm">
+            <input type="file" id="profilePictureInput" accept="image/*" required>
+            <button type="submit">تحديث الصورة</button>
+        </form>
         <div id="message"></div>
         <button onclick="window.location.href='/chat'">العودة إلى المحادثة</button>
     </div>
 
-    <!-- إضافة Cloudinary Upload Widget -->
-    <script src="https://widget.cloudinary.com/v2.0/global/all.js" type="text/javascript"></script>
     <script>
+        // جلب اسم المستخدم (نقل هذه الدالة إلى الأعلى)
+        async function fetchUsername() {
+            const response = await fetch('/api/username');
+            const data = await response.json();
+            return data.username;
+        }
+
         // جلب الصورة الشخصية الحالية
         async function fetchProfilePicture() {
             try {
@@ -72,63 +83,36 @@
             }
         }
 
-        // جلب اسم المستخدم
-        async function fetchUsername() {
-            const response = await fetch('/api/username');
-            const data = await response.json();
-            return data.username;
-        }
-
-        // رفع الصورة باستخدام Cloudinary Upload Widget
-        function uploadProfilePicture() {
-            // التحقق من توفر مكتبة Cloudinary
-            if (typeof cloudinary === 'undefined') {
-                console.error('مكتبة Cloudinary لم يتم تحميلها بشكل صحيح');
+        // تحديث الصورة الشخصية
+        document.getElementById('profileForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData();
+            const fileInput = document.getElementById('profilePictureInput');
+            if (!fileInput.files[0]) {
                 document.getElementById('message').style.color = '#f44336';
-                document.getElementById('message').textContent = 'فشل تحميل مكتبة Cloudinary. تحقق من اتصالك بالإنترنت.';
+                document.getElementById('message').textContent = 'يرجى اختيار صورة';
                 return;
             }
+            formData.append('profilePicture', fileInput.files[0]);
 
-            console.log('فتح نافذة Cloudinary Upload Widget...');
-            cloudinary.openUploadWidget({
-                cloudName: 'diara9dzg', // استبدل بـ Cloud Name الخاص بك
-                uploadPreset: 'ml_default', // استبدل بـ Upload Preset الخاص بك
-                sources: ['local', 'url', 'camera'],
-                cropping: true,
-                croppingAspectRatio: 1,
-                multiple: false,
-                folder: 'profile_pictures',
-                maxImageWidth: 100,
-                maxImageHeight: 100
-            }, async (error, result) => {
-                if (error) {
-                    console.error('خطأ في Cloudinary Upload Widget:', error);
-                    document.getElementById('message').style.color = '#f44336';
-                    document.getElementById('message').textContent = 'فشل رفع الصورة: ' + error.message;
-                    return;
+            try {
+                const response = await fetch('/api/upload-profile-picture', {
+                    method: 'POST',
+                    body: formData
+                });
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(errorText || 'فشل في تحديث الصورة');
                 }
-
-                if (result && result.event === 'success') {
-                    console.log('تم رفع الصورة بنجاح:', result.info);
-                    const imageUrl = result.info.secure_url;
-                    try {
-                        const response = await fetch('/api/upload-profile-picture', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ profilePicture: imageUrl })
-                        });
-                        if (!response.ok) throw new Error('فشل في تحديث الصورة');
-                        document.getElementById('message').style.color = '#34c759';
-                        document.getElementById('message').textContent = 'تم تحديث الصورة بنجاح';
-                        fetchProfilePicture();
-                    } catch (error) {
-                        console.error('خطأ أثناء تحديث الصورة:', error);
-                        document.getElementById('message').style.color = '#f44336';
-                        document.getElementById('message').textContent = 'فشل تحديث الصورة: ' + error.message;
-                    }
-                }
-            });
-        }
+                document.getElementById('message').style.color = '#34c759';
+                document.getElementById('message').textContent = 'تم تحديث الصورة بنجاح';
+                fetchProfilePicture();
+            } catch (error) {
+                console.error('خطأ أثناء تحديث الصورة:', error);
+                document.getElementById('message').style.color = '#f44336';
+                document.getElementById('message').textContent = 'فشل تحديث الصورة: ' + error.message;
+            }
+        });
 
         fetchProfilePicture();
     </script>
