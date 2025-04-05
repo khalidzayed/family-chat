@@ -60,16 +60,16 @@
             align-items: flex-start;
         }
         .message.sent {
-            margin-left: auto;
-            margin-right: 10px;
-            flex-direction: row;
-        }
-        .message.received {
             margin-right: auto;
             margin-left: 10px;
             flex-direction: row;
         }
-        .message img {
+        .message.received {
+            margin-left: auto;
+            margin-right: 10px;
+            flex-direction: row;
+        }
+        .message img.profile-pic {
             width: 30px;
             height: 30px;
             border-radius: 50%;
@@ -86,7 +86,12 @@
         .message.sent .message-content {
             background-color: #dcf8c6;
         }
-        .message-content img, .message-content audio {
+        .message-content img.message-img {
+            max-width: 150px;
+            cursor: pointer;
+            margin-top: 5px;
+        }
+        .message-content audio {
             max-width: 200px;
             margin-top: 5px;
         }
@@ -111,6 +116,12 @@
             padding: 10px;
             background-color: #fff;
             border-top: 1px solid #ddd;
+            align-items: center;
+            flex-direction: column;
+        }
+        .chat-input .input-row {
+            display: flex;
+            width: 100%;
             align-items: center;
         }
         .chat-input input[type="text"] {
@@ -138,6 +149,43 @@
         }
         .record-btn.recording {
             background-color: #ff4444;
+        }
+        .preview-area {
+            display: none;
+            margin-top: 10px;
+            width: 100%;
+            text-align: center;
+        }
+        .preview-area img {
+            max-width: 150px;
+            margin-bottom: 5px;
+        }
+        .preview-area audio {
+            width: 200px;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .modal img {
+            max-width: 90%;
+            max-height: 90%;
+        }
+        .modal .close {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: #fff;
+            font-size: 30px;
+            cursor: pointer;
         }
         .user-list, .group-list {
             list-style: none;
@@ -189,13 +237,25 @@
             </div>
             <div class="chat-messages" id="chatMessages"></div>
             <div class="chat-input">
-                <input type="file" id="fileInput" accept="image/*,audio/*">
-                <button onclick="document.getElementById('fileInput').click()">📎</button>
-                <button id="recordBtn" class="record-btn" onclick="toggleRecording()">🎙️</button>
-                <input type="text" id="messageInput" placeholder="اكتب رسالة...">
-                <button onclick="sendMessage()">إرسال</button>
+                <div class="input-row">
+                    <input type="file" id="fileInput" accept="image/*,audio/*">
+                    <button onclick="document.getElementById('fileInput').click()">📎</button>
+                    <button id="recordBtn" class="record-btn" onclick="startRecording()">🎙️</button>
+                    <input type="text" id="messageInput" placeholder="اكتب رسالة...">
+                    <button onclick="sendMessage()">إرسال</button>
+                </div>
+                <div class="preview-area" id="previewArea">
+                    <div id="previewContent"></div>
+                    <button onclick="sendPreview()">إرسال</button>
+                    <button onclick="cancelPreview()">إلغاء</button>
+                </div>
             </div>
         </div>
+    </div>
+
+    <div class="modal" id="imageModal">
+        <span class="close" onclick="closeModal()">&times;</span>
+        <img id="modalImage">
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
@@ -210,6 +270,7 @@
         let userProfiles = {};
         let mediaRecorder;
         let audioChunks = [];
+        let previewFile = null;
 
         async function fetchUsername() {
             try {
@@ -249,7 +310,7 @@
 
             socket.on('message', (msg) => {
                 if ((isGroupChat && msg.isGroup && msg.recipient === currentChat) ||
-                    (!isGroupChat && !msg.isGroup && msg.sender === currentChat)) {
+                    (!isGroupChat && !msg.isGroup && (msg.sender === currentChat || msg.recipient === currentChat))) {
                     displayMessage(msg);
                 }
                 fetchUnreadMessages();
@@ -477,7 +538,7 @@
 
             let contentHtml = '';
             if (msg.messageType === 'image') {
-                contentHtml = `<img src="${msg.message}" alt="صورة مرسلة">`;
+                contentHtml = `<img class="message-img" src="${msg.message}" alt="صورة مرسلة" onclick="openModal('${msg.message}')">`;
             } else if (msg.messageType === 'audio') {
                 contentHtml = `<audio controls src="${msg.message}"></audio>`;
             } else {
@@ -485,7 +546,7 @@
             }
 
             messageDiv.innerHTML = `
-                <img src="${userProfiles[msg.sender] || 'https://res.cloudinary.com/demo/image/upload/v1312461204/sample.jpg'}" alt="${msg.sender}">
+                <img class="profile-pic" src="${userProfiles[msg.sender] || 'https://res.cloudinary.com/demo/image/upload/v1312461204/sample.jpg'}" alt="${msg.sender}">
                 <div class="message-content">
                     <button class="delete-btn" onclick="deleteMessage('${msg._id}', ${isSent})">حذف</button>
                     ${contentHtml}
@@ -543,11 +604,27 @@
 
         document.getElementById('fileInput').addEventListener('change', (e) => {
             const file = e.target.files[0];
-            if (file) sendFile(file);
-            e.target.value = ''; // إعادة تعيين الإدخال
+            if (file) {
+                previewFile = file;
+                const previewArea = document.getElementById('previewArea');
+                const previewContent = document.getElementById('previewContent');
+                if (file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        previewContent.innerHTML = `<img src="${e.target.result}" alt="معاينة الصورة">`;
+                        previewArea.style.display = 'block';
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    const url = URL.createObjectURL(file);
+                    previewContent.innerHTML = `<audio controls src="${url}"></audio>`;
+                    previewArea.style.display = 'block';
+                }
+            }
+            e.target.value = '';
         });
 
-        async function toggleRecording() {
+        async function startRecording() {
             const recordBtn = document.getElementById('recordBtn');
             if (!mediaRecorder || mediaRecorder.state === 'inactive') {
                 try {
@@ -559,10 +636,16 @@
                         audioChunks.push(e.data);
                     };
 
-                    mediaRecorder.onstop = async () => {
+                    mediaRecorder.onstop = () => {
                         const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                        const file = new File([audioBlob], 'recording.webm', { type: 'audio/webm' });
-                        sendFile(file);
+                        previewFile = new File([audioBlob], 'recording.webm', { type: 'audio/webm' });
+                        const previewArea = document.getElementById('previewArea');
+                        const previewContent = document.getElementById('previewContent');
+                        const url = URL.createObjectURL(previewFile);
+                        previewContent.innerHTML = `<audio controls src="${url}"></audio>`;
+                        previewArea.style.display = 'block';
+                        recordBtn.classList.remove('recording');
+                        recordBtn.textContent = '🎙️';
                     };
 
                     mediaRecorder.start();
@@ -573,9 +656,34 @@
                 }
             } else {
                 mediaRecorder.stop();
-                recordBtn.classList.remove('recording');
-                recordBtn.textContent = '🎙️';
             }
+        }
+
+        function sendPreview() {
+            if (previewFile) {
+                sendFile(previewFile);
+                cancelPreview();
+            }
+        }
+
+        function cancelPreview() {
+            previewFile = null;
+            const previewArea = document.getElementById('previewArea');
+            const previewContent = document.getElementById('previewContent');
+            previewContent.innerHTML = '';
+            previewArea.style.display = 'none';
+        }
+
+        function openModal(imageUrl) {
+            const modal = document.getElementById('imageModal');
+            const modalImage = document.getElementById('modalImage');
+            modalImage.src = imageUrl;
+            modal.style.display = 'flex';
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('imageModal');
+            modal.style.display = 'none';
         }
 
         async function deleteMessage(messageId, isSender) {
