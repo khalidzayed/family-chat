@@ -19,7 +19,6 @@
             overflow: hidden;
         }
 
-        /* القسم الأيسر: قائمة المحادثات */
         .sidebar {
             width: 30%;
             background-color: #fff;
@@ -32,16 +31,30 @@
         .sidebar h2 {
             font-size: 20px;
             color: #333;
-            margin-bottom: 20px;
+            margin-bottom: 10px;
             padding: 10px;
         }
 
-        .chat-list {
+        .sidebar button {
+            padding: 10px;
+            background-color: #34c759;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-bottom: 10px;
+        }
+
+        .sidebar button:hover {
+            background-color: #2db34a;
+        }
+
+        .chat-list, .group-list {
             flex: 1;
             overflow-y: auto;
         }
 
-        .chat-item {
+        .chat-item, .group-item {
             display: flex;
             align-items: center;
             padding: 10px;
@@ -49,36 +62,30 @@
             cursor: pointer;
         }
 
-        .chat-item:hover {
+        .chat-item:hover, .group-item:hover {
             background-color: #f5f5f5;
         }
 
-        .chat-item.active {
+        .chat-item.active, .group-item.active {
             background-color: #e5e7eb;
         }
 
-        .chat-item .avatar {
+        .chat-item .avatar, .group-item .avatar {
             width: 40px;
             height: 40px;
             border-radius: 50%;
             margin-left: 10px;
         }
 
-        .chat-item .chat-info {
+        .chat-item .chat-info, .group-item .chat-info {
             flex: 1;
         }
 
-        .chat-item .chat-info h3 {
+        .chat-item .chat-info h3, .group-item .chat-info h3 {
             font-size: 16px;
             color: #333;
         }
 
-        .chat-item .chat-info p {
-            font-size: 14px;
-            color: #777;
-        }
-
-        /* القسم الأيمن: منطقة المحادثة */
         .chat-area {
             width: 70%;
             display: flex;
@@ -183,7 +190,6 @@
             cursor: pointer;
         }
 
-        /* نموذج إضافة مستخدم */
         .modal {
             display: none;
             position: fixed;
@@ -200,11 +206,11 @@
             background-color: #fff;
             padding: 20px;
             border-radius: 10px;
-            width: 300px;
+            width: 400px;
             text-align: center;
         }
 
-        .modal-content input {
+        .modal-content input, .modal-content select {
             width: 100%;
             padding: 10px;
             margin: 10px 0;
@@ -229,8 +235,11 @@
 <body>
     <!-- القسم الأيسر: قائمة المحادثات -->
     <div class="sidebar">
-        <h2>المحادثات</h2>
+        <h2>الأشخاص المتصلون</h2>
+        <button onclick="openCreateGroupModal()">إنشاء مجموعة</button>
         <div class="chat-list" id="chatList"></div>
+        <h2>المجموعات</h2>
+        <div class="group-list" id="groupList"></div>
     </div>
 
     <!-- القسم الأيمن: منطقة المحادثة -->
@@ -238,7 +247,6 @@
         <div class="chat-header">
             <h2 id="chatTitle">اختر محادثة</h2>
             <div class="icons">
-                <i onclick="openAddUserModal()">➕</i>
                 <i onclick="requestNotifications()">🔔</i>
                 <i onclick="window.location.href='/logout'">🚪</i>
             </div>
@@ -254,13 +262,15 @@
         </div>
     </div>
 
-    <!-- نموذج إضافة مستخدم -->
-    <div class="modal" id="addUserModal">
+    <!-- نموذج إنشاء مجموعة -->
+    <div class="modal" id="createGroupModal">
         <div class="modal-content">
-            <h2>إضافة مستخدم</h2>
-            <input type="text" id="newUserName" placeholder="اسم المستخدم">
-            <input type="password" id="newUserPassword" placeholder="كلمة المرور">
-            <button onclick="addUser()">إضافة</button>
+            <h2>إنشاء مجموعة</h2>
+            <input type="text" id="groupName" placeholder="اسم المجموعة">
+            <select multiple id="groupMembers">
+                <!-- سيتم ملؤها ديناميكيًا -->
+            </select>
+            <button onclick="createGroup()">إنشاء</button>
         </div>
     </div>
 
@@ -268,7 +278,8 @@
     <script>
         let username;
         let socket;
-        let selectedChatId = null;
+        let currentChat = null; // لتخزين المحادثة الحالية (شخص أو مجموعة)
+        let isGroupChat = false; // لتحديد ما إذا كانت المحادثة مع مجموعة
         const colors = {};
         const notificationSound = new Audio('https://www.soundjay.com/buttons/beep-01a.mp3');
 
@@ -296,7 +307,7 @@
             socket.on('connect', () => {
                 console.log('تم الاتصال بالـ WebSocket باسم:', username);
                 fetchUsers();
-                fetchMessages();
+                fetchGroups();
             });
 
             socket.on('connect_error', (err) => {
@@ -308,7 +319,7 @@
                 console.log('رسالة مستلمة عبر WebSocket:', msg);
                 const [senderWithTime, text] = msg.split(']: ');
                 const [sender, time] = senderWithTime.split(' [');
-                displayMessage({ username: sender, message: text, timestamp: time }, sender);
+                displayMessage({ sender, message: text, timestamp: time }, sender);
                 if (sender !== username) {
                     notificationSound.play();
                     if ('Notification' in window && Notification.permission === 'granted') {
@@ -320,6 +331,11 @@
             socket.on('users', (users) => {
                 console.log('قائمة المستخدمين المستلمة:', users);
                 displayUsers(users);
+            });
+
+            socket.on('groupCreated', (group) => {
+                console.log('تم إنشاء مجموعة جديدة:', group);
+                displayGroups([...document.querySelectorAll('.group-item').map(item => item.getAttribute('data-id')), group.name]);
             });
         }
 
@@ -341,6 +357,7 @@
             const chatList = document.getElementById('chatList');
             chatList.innerHTML = '';
             users.forEach(user => {
+                if (user === username) return; // لا نعرض المستخدم الحالي في القائمة
                 const chatItem = document.createElement('div');
                 chatItem.classList.add('chat-item');
                 chatItem.setAttribute('data-id', user);
@@ -349,27 +366,75 @@
                     <div class="avatar" style="background-color: ${colors[user]}"></div>
                     <div class="chat-info">
                         <h3>${user}</h3>
-                        <p>مرحبًا، كيف حالك؟</p>
                     </div>
                 `;
-                chatItem.addEventListener('click', () => selectChat(user));
+                chatItem.addEventListener('click', () => selectChat(user, false));
                 chatList.appendChild(chatItem);
+            });
+
+            // تحديث قائمة الأعضاء في نموذج إنشاء المجموعة
+            const groupMembers = document.getElementById('groupMembers');
+            groupMembers.innerHTML = '';
+            users.forEach(user => {
+                if (user === username) return;
+                const option = document.createElement('option');
+                option.value = user;
+                option.textContent = user;
+                groupMembers.appendChild(option);
             });
         }
 
-        // اختيار محادثة
-        function selectChat(chatId) {
-            selectedChatId = chatId;
+        // جلب المجموعات
+        async function fetchGroups() {
+            try {
+                const response = await fetch('/api/groups');
+                if (!response.ok) throw new Error('فشل في جلب المجموعات');
+                const groups = await response.json();
+                displayGroups(groups.map(group => group.name));
+            } catch (error) {
+                console.error('خطأ في جلب المجموعات:', error);
+                alert('حدث خطأ أثناء جلب المجموعات. حاول مرة أخرى لاحقًا.');
+            }
+        }
+
+        // عرض المجموعات
+        function displayGroups(groups) {
+            const groupList = document.getElementById('groupList');
+            groupList.innerHTML = '';
+            groups.forEach(group => {
+                const groupItem = document.createElement('div');
+                groupItem.classList.add('group-item');
+                groupItem.setAttribute('data-id', group);
+                if (!colors[group]) colors[group] = getRandomColor();
+                groupItem.innerHTML = `
+                    <div class="avatar" style="background-color: ${colors[group]}"></div>
+                    <div class="chat-info">
+                        <h3>${group}</h3>
+                    </div>
+                `;
+                groupItem.addEventListener('click', () => selectChat(group, true));
+                groupList.appendChild(groupItem);
+            });
+        }
+
+        // اختيار محادثة (شخص أو مجموعة)
+        function selectChat(chatId, isGroup) {
+            currentChat = chatId;
+            isGroupChat = isGroup;
             document.getElementById('chatTitle').textContent = chatId;
-            document.querySelectorAll('.chat-item').forEach(item => item.classList.remove('active'));
-            document.querySelector(`.chat-item[data-id="${chatId}"]`).classList.add('active');
+            document.querySelectorAll('.chat-item, .group-item').forEach(item => item.classList.remove('active'));
+            document.querySelector(`[data-id="${chatId}"]`).classList.add('active');
+            
+            const room = isGroup ? chatId : [username, chatId].sort().join('-');
+            socket.emit('joinRoom', room);
             fetchMessages();
         }
 
         // جلب الرسائل
         async function fetchMessages() {
+            if (!currentChat) return;
             try {
-                const response = await fetch('/api/messages');
+                const response = await fetch(`/api/messages?recipient=${currentChat}&isGroup=${isGroupChat}`);
                 if (!response.ok) throw new Error('فشل في جلب الرسائل');
                 const messages = await response.json();
                 displayMessages(messages);
@@ -384,7 +449,7 @@
             const chatMessages = document.getElementById('chatMessages');
             chatMessages.innerHTML = '';
             messages.forEach(msg => {
-                displayMessage(msg, msg.username);
+                displayMessage(msg, msg.sender);
             });
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
@@ -404,44 +469,47 @@
 
         // إرسال رسالة
         function sendMessage() {
+            if (!currentChat) {
+                alert('يرجى اختيار محادثة أولاً');
+                return;
+            }
             const input = document.getElementById('messageInput');
             const message = input.value.trim();
             if (message && socket) {
-                socket.emit('message', message);
+                socket.emit('privateMessage', { recipient: currentChat, message, isGroup: isGroupChat });
                 input.value = '';
             } else {
                 alert('يرجى كتابة رسالة أو التحقق من الاتصال بالخادم');
             }
         }
 
-        // فتح نموذج إضافة مستخدم
-        function openAddUserModal() {
-            document.getElementById('addUserModal').style.display = 'flex';
+        // فتح نموذج إنشاء مجموعة
+        function openCreateGroupModal() {
+            document.getElementById('createGroupModal').style.display = 'flex';
         }
 
-        // إضافة مستخدم جديد
-        async function addUser() {
-            const username = document.getElementById('newUserName').value.trim();
-            const password = document.getElementById('newUserPassword').value.trim();
-            if (!username || !password) {
-                alert('يرجى ملء جميع الحقول');
+        // إنشاء مجموعة
+        async function createGroup() {
+            const groupName = document.getElementById('groupName').value.trim();
+            const groupMembers = Array.from(document.getElementById('groupMembers').selectedOptions).map(opt => opt.value);
+            if (!groupName || groupMembers.length === 0) {
+                alert('يرجى إدخال اسم المجموعة واختيار أعضاء');
                 return;
             }
 
             try {
-                const response = await fetch('/api/users', {
+                const response = await fetch('/api/groups', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password })
+                    body: JSON.stringify({ name: groupName, members: groupMembers })
                 });
-                if (!response.ok) throw new Error('فشل في إضافة المستخدم');
-                document.getElementById('addUserModal').style.display = 'none';
-                document.getElementById('newUserName').value = '';
-                document.getElementById('newUserPassword').value = '';
-                fetchUsers(); // تحديث القائمة ديناميكيًا
+                if (!response.ok) throw new Error('فشل في إنشاء المجموعة');
+                document.getElementById('createGroupModal').style.display = 'none';
+                document.getElementById('groupName').value = '';
+                fetchGroups();
             } catch (error) {
-                console.error('خطأ في إضافة المستخدم:', error);
-                alert('حدث خطأ أثناء إضافة المستخدم. حاول مرة أخرى لاحقًا.');
+                console.error('خطأ في إنشاء المجموعة:', error);
+                alert('حدث خطأ أثناء إنشاء المجموعة. حاول مرة أخرى لاحقًا.');
             }
         }
 
@@ -466,7 +534,7 @@
             }
         }
 
-        // توليد لون عشوائي للأيقونات
+        // توليد لون عشوائي
         function getRandomColor() {
             const colors = ['#ff6b6b', '#feca57', '#48dbfb', '#ff9f43', '#1dd1a1'];
             return colors[Math.floor(Math.random() * colors.length)];
