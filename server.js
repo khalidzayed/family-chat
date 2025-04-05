@@ -268,11 +268,12 @@ app.post('/api/upload-profile-picture', isAuthenticated, upload.single('profileP
 
 app.get('/api/user-status', isAuthenticated, async (req, res) => {
     try {
-        const users = await User.find({}, 'username lastSeen');
+        const users = await User.find({}, 'username lastSeen profilePicture');
         const userStatus = users.map(user => ({
             username: user.username,
             isOnline: connectedUsers.has(user.username),
-            lastSeen: user.lastSeen
+            lastSeen: user.lastSeen,
+            profilePicture: user.profilePicture
         }));
         res.json(userStatus);
     } catch (err) {
