@@ -9,7 +9,7 @@ const CryptoJS = require('crypto-js');
 const MongoStore = require('connect-mongo');
 const bcrypt = require('bcrypt');
 const compression = require('compression');
-const multer = require('multer'); // للتعامل مع رفع الملفات
+const cloudinary = require('cloudinary').v2; // استيراد Cloudinary
 
 const app = express();
 const server = http.createServer(app);
@@ -20,16 +20,12 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(express.static(__dirname));
 
-// إعداد multer لرفع الصور
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, 'uploads/'); // مجلد لتخزين الصور
-    },
-    filename: (req, file, cb) => {
-        cb(null, `${Date.now()}-${file.originalname}`); // اسم الملف مع طابع زمني
-    }
+// إعداد Cloudinary
+cloudinary.config({
+    cloud_name: 'YOUR_CLOUD_NAME', // استبدل بـ Cloud Name الخاص بك
+    api_key: 'YOUR_API_KEY',       // استبدل بـ API Key الخاص بك
+    api_secret: 'YOUR_API_SECRET'  // استبدل بـ API Secret الخاص بك
 });
-const upload = multer({ storage });
 
 app.use(session({
     secret: process.env.SESSION_SECRET || 'family-chat-secret',
@@ -62,7 +58,7 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://khalidzayed9:Mihyar%4
 const UserSchema = new mongoose.Schema({
     username: { type: String, unique: true, required: true },
     password: { type: String, required: true },
-    profilePicture: { type: String, default: '/default-avatar.png' } // رابط الصورة الشخصية
+    profilePicture: { type: String, default: 'https://res.cloudinary.com/demo/image/upload/v1312461204/sample.jpg' } // صورة افتراضية من Cloudinary
 });
 
 UserSchema.pre('save', async function(next) {
@@ -196,15 +192,31 @@ app.delete('/api/messages', isAuthenticated, async (req, res) => {
     }
 });
 
-// API لرفع الصورة الشخصية
-app.post('/api/upload-profile-picture', isAuthenticated, upload.single('profilePicture'), async (req, res) => {
+// API لرفع الصورة الشخصية إلى Cloudinary
+app.post('/api/upload-profile-picture', isAuthenticated, async (req, res) => {
     try {
+        // التحقق من وجود ملف مرفوع
+        if (!req.body.profilePicture) {
+            return res.status(400).send('لم يتم رفع أي صورة');
+        }
+
+        // رفع الصورة إلى Cloudinary
+        const result = await cloudinary.uploader.upload(req.body.profilePicture, {
+            folder: 'profile_pictures', // مجلد في Cloudinary
+            transformation: [
+                { width: 100, height: 100, crop: 'fill' } // ضبط حجم الصورة
+            ]
+        });
+
+        // تحديث الصورة الشخصية في قاعدة البيانات
         const user = await User.findOne({ username: req.session.user });
         if (!user) return res.status(404).send('المستخدم غير موجود');
-        user.profilePicture = `/uploads/${req.file.filename}`;
+        user.profilePicture = result.secure_url; // رابط الصورة من Cloudinary
         await user.save();
+
         res.status(200).send('تم تحديث الصورة الشخصية');
     } catch (err) {
+        console.error('خطأ أثناء رفع الصورة:', err);
         res.status(500).send('فشل تحديث الصورة الشخصية: ' + err.message);
     }
 });
@@ -298,7 +310,7 @@ io.on('connection', async (socket) => {
             recipient: isGroup ? recipient : recipient,
             message: encryptedMsg,
             isGroup,
-            timestamp: new Date() // التأكد من إرسال التاريخ
+            timestamp: new Date()
         });
 
         try {
