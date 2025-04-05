@@ -59,11 +59,18 @@
     </div>
 
     <script>
-        // جلب اسم المستخدم (نقل هذه الدالة إلى الأعلى)
+        // جلب اسم المستخدم
         async function fetchUsername() {
-            const response = await fetch('/api/username');
-            const data = await response.json();
-            return data.username;
+            try {
+                const response = await fetch('/api/username');
+                if (!response.ok) throw new Error('فشل في جلب اسم المستخدم');
+                const data = await response.json();
+                if (!data.username) throw new Error('اسم المستخدم غير موجود في الاستجابة');
+                return data.username;
+            } catch (error) {
+                console.error('خطأ في جلب اسم المستخدم:', error);
+                throw error;
+            }
         }
 
         // جلب الصورة الشخصية الحالية
@@ -72,9 +79,12 @@
                 const response = await fetch('/api/users');
                 if (!response.ok) throw new Error('فشل في جلب بيانات المستخدم');
                 const users = await response.json();
-                const user = users.find(u => u.username === (await fetchUsername()));
+                const username = await fetchUsername();
+                const user = users.find(u => u.username === username);
                 if (user && user.profilePicture) {
                     document.getElementById('profilePicture').src = user.profilePicture;
+                } else {
+                    throw new Error('المستخدم أو الصورة الشخصية غير موجودة');
                 }
             } catch (error) {
                 console.error('خطأ في جلب الصورة الشخصية:', error);
@@ -114,6 +124,7 @@
             }
         });
 
+        // استدعاء الدالة عند تحميل الصفحة
         fetchProfilePicture();
     </script>
 </body>
