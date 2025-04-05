@@ -22,9 +22,9 @@ app.use(express.static(__dirname));
 
 // إعداد Cloudinary
 cloudinary.config({
-    cloud_name: 'YOUR_CLOUD_NAME', // استبدل بـ Cloud Name الخاص بك
-    api_key: 'YOUR_API_KEY',       // استبدل بـ API Key الخاص بك
-    api_secret: 'YOUR_API_SECRET'  // استبدل بـ API Secret الخاص بك
+    cloud_name: 'diara9dzg', // استبدل بـ Cloud Name الخاص بك
+    api_key: '969277843346462',       // استبدل بـ API Key الخاص بك
+    api_secret: 'uuee0QzBTNDVB-809XDoJCDRJhE'  // استبدل بـ API Secret الخاص بك
 });
 
 app.use(session({
