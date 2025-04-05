@@ -158,39 +158,56 @@
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
-        const socket = io({ query: { username: null } });
+        let socket; // سنقوم بتعريف الاتصال بعد جلب اسم المستخدم
         let currentChat = null;
         let isGroupChat = false;
+        let currentUsername = null; // متغير لتخزين اسم المستخدم
 
         async function fetchUsername() {
-            const response = await fetch('/api/username');
-            const data = await response.json();
-            socket.query.username = data.username;
-            socket.disconnect().connect();
-            return data.username;
+            try {
+                const response = await fetch('/api/username');
+                if (!response.ok) throw new Error('فشل جلب اسم المستخدم');
+                const data = await response.json();
+                currentUsername = data.username; // تخزين اسم المستخدم في متغير محلي
+
+                // إنشاء أو إعادة الاتصال بـ Socket.IO مع اسم المستخدم
+                if (socket) {
+                    socket.disconnect();
+                }
+                socket = io({ query: { username: currentUsername } });
+
+                // إعداد مستمعي الأحداث بعد الاتصال
+                setupSocketListeners();
+
+                return currentUsername;
+            } catch (err) {
+                console.error('خطأ في جلب اسم المستخدم:', err);
+                throw err;
+            }
         }
 
-        fetchUsername();
+        function setupSocketListeners() {
+            socket.on('users', (users) => {
+                fetchUserStatus(users);
+            });
 
-        socket.on('users', (users) => {
-            fetchUserStatus(users);
-        });
+            socket.on('message', (msg) => {
+                if ((isGroupChat && msg.isGroup && msg.recipient === currentChat) ||
+                    (!isGroupChat && !msg.isGroup && msg.sender === currentChat)) {
+                    displayMessage(msg);
+                }
+                fetchUnreadMessages(); // تحديث عدد الرسائل غير المقروءة
+            });
 
-        socket.on('message', (msg) => {
-            if ((isGroupChat && msg.isGroup && msg.recipient === currentChat) ||
-                (!isGroupChat && !msg.isGroup && msg.sender === currentChat)) {
-                displayMessage(msg);
-            }
-            fetchUnreadMessages(); // تحديث عدد الرسائل غير المقروءة
-        });
-
-        socket.on('groupCreated', (group) => {
-            displayGroups();
-        });
+            socket.on('groupCreated', (group) => {
+                displayGroups();
+            });
+        }
 
         async function fetchUserStatus(users) {
             try {
                 const response = await fetch('/api/user-status');
+                if (!response.ok) throw new Error('فشل جلب حالة المستخدمين');
                 const userStatus = await response.json();
                 const userList = document.getElementById('users');
                 userList.innerHTML = '';
@@ -222,6 +239,7 @@
         async function displayGroups() {
             try {
                 const response = await fetch('/api/groups');
+                if (!response.ok) throw new Error('فشل جلب المجموعات');
                 const groups = await response.json();
                 const groupList = document.getElementById('groups');
                 groupList.innerHTML = '';
@@ -248,6 +266,7 @@
         async function fetchUnreadMessages() {
             try {
                 const response = await fetch('/api/unread-messages');
+                if (!response.ok) throw new Error('فشل جلب عدد الرسائل غير المقروءة');
                 const unreadCounts = await response.json();
 
                 // تحديث عدد الرسائل غير المقروءة للمستخدمين
@@ -292,10 +311,11 @@
             document.getElementById('chatTitle').textContent = recipient;
             document.getElementById('chatMessages').innerHTML = '';
 
-            socket.emit('joinRoom', isGroup ? recipient : [await fetchUsername(), recipient].sort().join('-'));
+            socket.emit('joinRoom', isGroup ? recipient : [currentUsername, recipient].sort().join('-'));
 
             try {
                 const response = await fetch(`/api/messages?recipient=${recipient}&isGroup=${isGroup}`);
+                if (!response.ok) throw new Error('فشل جلب الرسائل');
                 const messages = await response.json();
                 messages.forEach(displayMessage);
             } catch (err) {
@@ -306,7 +326,7 @@
         function displayMessage(msg) {
             const chatMessages = document.getElementById('chatMessages');
             const messageDiv = document.createElement('div');
-            const isSent = msg.sender === socket.query.username;
+            const isSent = msg.sender === currentUsername;
             messageDiv.className = `message ${isSent ? 'sent' : 'received'}`;
             messageDiv.innerHTML = `
                 <div>${msg.sender}: ${msg.message}</div>
@@ -333,7 +353,14 @@
             if (e.key === 'Enter') sendMessage();
         });
 
-        displayGroups();
+        // استدعاء fetchUsername عند تحميل الصفحة
+        fetchUsername().then(() => {
+            displayGroups();
+        }).catch(err => {
+            console.error('فشل التهيئة:', err);
+            // يمكنك إعادة توجيه المستخدم إلى صفحة تسجيل الدخول إذا فشل جلب اسم المستخدم
+            window.location.href = '/';
+        });
     </script>
 </body>
 </html>
