@@ -132,6 +132,12 @@
             font-size: 12px;
             margin-right: 5px;
         }
+        .typing-indicator {
+            font-size: 12px;
+            color: #888;
+            margin: 5px 10px;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -149,6 +155,7 @@
                 <h2 id="chatTitle">اختر محادثة</h2>
             </div>
             <div class="chat-messages" id="chatMessages"></div>
+            <div class="typing-indicator" id="typingIndicator"></div>
             <div class="chat-input">
                 <input type="text" id="messageInput" placeholder="اكتب رسالة...">
                 <button onclick="sendMessage()">إرسال</button>
@@ -162,8 +169,9 @@
         let currentChat = null;
         let isGroupChat = false;
         let currentUsername = null;
-        let lastUserStatus = []; // لتخزين حالة المستخدمين الأخيرة
-        let lastUnreadCounts = {}; // لتخزين عدد الرسائل غير المقروءة الأخير
+        let lastUserStatus = [];
+        let lastUnreadCounts = {};
+        let typingTimeout; // لتتبع حالة الكتابة
 
         async function fetchUsername() {
             try {
@@ -192,7 +200,6 @@
 
             socket.on('connect_error', (err) => {
                 console.error('خطأ في الاتصال بـ Socket.IO:', err.message);
-                // إعادة المحاولة بعد 5 ثوانٍ
                 setTimeout(() => {
                     socket.connect();
                 }, 5000);
@@ -213,6 +220,29 @@
             socket.on('groupCreated', (group) => {
                 displayGroups();
             });
+
+            // مستمع لحدث الكتابة
+            socket.on('typing', ({ sender, recipient, isGroup }) => {
+                if ((isGroupChat && isGroup && recipient === currentChat) ||
+                    (!isGroupChat && !isGroup && sender === currentChat)) {
+                    const typingIndicator = document.getElementById('typingIndicator');
+                    typingIndicator.textContent = `${sender} يكتب الآن...`;
+                    typingIndicator.style.display = 'block';
+                    // التمرير لأسفل للتأكد من رؤية المؤشر
+                    const chatMessages = document.getElementById('chatMessages');
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                }
+            });
+
+            // مستمع لحدث التوقف عن الكتابة
+            socket.on('stopTyping', ({ sender, recipient, isGroup }) => {
+                if ((isGroupChat && isGroup && recipient === currentChat) ||
+                    (!isGroupChat && !isGroup && sender === currentChat)) {
+                    const typingIndicator = document.getElementById('typingIndicator');
+                    typingIndicator.textContent = '';
+                    typingIndicator.style.display = 'none';
+                }
+            });
         }
 
         async function fetchUserStatus(users, retries = 3, delay = 2000) {
@@ -224,7 +254,6 @@
                     const userList = document.getElementById('users');
                     const currentUser = currentUsername;
 
-                    // تحديث قائمة المستخدمين فقط إذا نجح الطلب
                     userList.innerHTML = '';
                     userStatus.forEach(user => {
                         if (user.username === currentUser) return;
@@ -243,16 +272,15 @@
                         userList.appendChild(li);
                     });
 
-                    lastUserStatus = userStatus; // تخزين الحالة الأخيرة
-                    fetchUnreadMessages(); // تحديث عدد الرسائل غير المقروءة
-                    return; // الخروج من الحلقة إذا نجح الطلب
+                    lastUserStatus = userStatus;
+                    fetchUnreadMessages();
+                    return;
                 } catch (err) {
                     console.error('خطأ في جلب حالة المستخدمين:', err);
                     if (i < retries - 1) {
                         console.log(`إعادة المحاولة ${i + 1}/${retries} بعد ${delay} مللي ثانية...`);
                         await new Promise(resolve => setTimeout(resolve, delay));
                     } else {
-                        // إذا فشلت كل المحاولات، استخدم الحالة الأخيرة
                         if (lastUserStatus.length > 0) {
                             const userList = document.getElementById('users');
                             userList.innerHTML = '';
@@ -312,7 +340,6 @@
                     if (!response.ok) throw new Error('فشل جلب عدد الرسائل غير المقروءة');
                     const unreadCounts = await response.json();
 
-                    // تحديث عدد الرسائل غير المقروءة للمستخدمين
                     document.querySelectorAll('.user-list li').forEach(li => {
                         const username = li.querySelector('span').textContent;
                         const unreadCount = unreadCounts[username] || 0;
@@ -328,7 +355,6 @@
                         }
                     });
 
-                    // تحديث عدد الرسائل غير المقروءة للمجموعات
                     document.querySelectorAll('.group-list li').forEach(li => {
                         const groupName = li.querySelector('span').textContent;
                         const unreadCount = unreadCounts[groupName] || 0;
@@ -344,15 +370,14 @@
                         }
                     });
 
-                    lastUnreadCounts = unreadCounts; // تخزين العدد الأخير
-                    return; // الخروج من الحلقة إذا نجح الطلب
+                    lastUnreadCounts = unreadCounts;
+                    return;
                 } catch (err) {
                     console.error('خطأ في جلب عدد الرسائل غير المقروءة:', err);
                     if (i < retries - 1) {
                         console.log(`إعادة المحاولة ${i + 1}/${retries} بعد ${delay} مللي ثانية...`);
                         await new Promise(resolve => setTimeout(resolve, delay));
                     } else {
-                        // إذا فشلت كل المحاولات، استخدم العدد الأخير
                         document.querySelectorAll('.user-list li').forEach(li => {
                             const username = li.querySelector('span').textContent;
                             const unreadCount = lastUnreadCounts[username] || 0;
@@ -392,6 +417,8 @@
             isGroupChat = isGroup;
             document.getElementById('chatTitle').textContent = recipient;
             document.getElementById('chatMessages').innerHTML = '';
+            document.getElementById('typingIndicator').textContent = '';
+            document.getElementById('typingIndicator').style.display = 'none';
 
             socket.emit('joinRoom', isGroup ? recipient : [currentUsername, recipient].sort().join('-'));
 
@@ -423,6 +450,12 @@
             const message = messageInput.value.trim();
             if (!message || !currentChat) return;
 
+            // إرسال حدث التوقف عن الكتابة عند إرسال الرسالة
+            socket.emit('stopTyping', {
+                recipient: currentChat,
+                isGroup: isGroupChat
+            });
+
             socket.emit('privateMessage', {
                 recipient: currentChat,
                 message,
@@ -430,6 +463,26 @@
             });
             messageInput.value = '';
         }
+
+        // مستمع لحدث الكتابة
+        document.getElementById('messageInput').addEventListener('input', () => {
+            if (!currentChat) return;
+
+            // إرسال حدث الكتابة
+            socket.emit('typing', {
+                recipient: currentChat,
+                isGroup: isGroupChat
+            });
+
+            // إعادة تعيين المؤقت لإرسال stopTyping
+            clearTimeout(typingTimeout);
+            typingTimeout = setTimeout(() => {
+                socket.emit('stopTyping', {
+                    recipient: currentChat,
+                    isGroup: isGroupChat
+                });
+            }, 2000); // بعد 2 ثانية من التوقف عن الكتابة
+        });
 
         document.getElementById('messageInput').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') sendMessage();
