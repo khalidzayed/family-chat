@@ -471,7 +471,6 @@ io.on('connection', async (socket) => {
         }
     });
 
-    // حدث الكتابة
     socket.on('typing', ({ recipient, isGroup }) => {
         const room = isGroup ? recipient : [socket.username, recipient].sort().join('-');
         io.to(room).emit('typing', {
@@ -481,7 +480,6 @@ io.on('connection', async (socket) => {
         });
     });
 
-    // حدث التوقف عن الكتابة
     socket.on('stopTyping', ({ recipient, isGroup }) => {
         const room = isGroup ? recipient : [socket.username, recipient].sort().join('-');
         io.to(room).emit('stopTyping', {
