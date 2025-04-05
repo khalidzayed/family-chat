@@ -9,7 +9,8 @@ const CryptoJS = require('crypto-js');
 const MongoStore = require('connect-mongo');
 const bcrypt = require('bcrypt');
 const compression = require('compression');
-const cloudinary = require('cloudinary').v2; // استيراد Cloudinary
+const cloudinary = require('cloudinary').v2;
+const multer = require('multer');
 
 const app = express();
 const server = http.createServer(app);
@@ -19,6 +20,18 @@ app.use(compression());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(express.static(__dirname));
+
+// إعداد multer لرفع الملفات مؤقتًا
+const upload = multer({
+    dest: 'uploads/',
+    fileFilter: (req, file, cb) => {
+        if (!file.mimetype.startsWith('image/')) {
+            return cb(new Error('يُسمح برفع الصور فقط!'), false);
+        }
+        cb(null, true);
+    },
+    limits: { fileSize: 5 * 1024 * 1024 } // الحد الأقصى 5 ميجابايت
+});
 
 // إعداد Cloudinary
 cloudinary.config({
@@ -58,7 +71,7 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://khalidzayed9:Mihyar%4
 const UserSchema = new mongoose.Schema({
     username: { type: String, unique: true, required: true },
     password: { type: String, required: true },
-    profilePicture: { type: String, default: 'https://res.cloudinary.com/demo/image/upload/v1312461204/sample.jpg' } // صورة افتراضية من Cloudinary
+    profilePicture: { type: String, default: 'https://res.cloudinary.com/demo/image/upload/v1312461204/sample.jpg' }
 });
 
 UserSchema.pre('save', async function(next) {
@@ -192,27 +205,34 @@ app.delete('/api/messages', isAuthenticated, async (req, res) => {
     }
 });
 
-// API لرفع الصورة الشخصية إلى Cloudinary
-app.post('/api/upload-profile-picture', isAuthenticated, async (req, res) => {
+// API لرفع الصورة الشخصية باستخدام multer و Cloudinary
+app.post('/api/upload-profile-picture', isAuthenticated, upload.single('profilePicture'), async (req, res) => {
     try {
         // التحقق من وجود ملف مرفوع
-        if (!req.body.profilePicture) {
+        if (!req.file) {
+            console.log('لم يتم رفع أي ملف');
             return res.status(400).send('لم يتم رفع أي صورة');
         }
 
+        console.log('جاري رفع الصورة إلى Cloudinary:', req.file.path);
         // رفع الصورة إلى Cloudinary
-        const result = await cloudinary.uploader.upload(req.body.profilePicture, {
-            folder: 'profile_pictures', // مجلد في Cloudinary
+        const result = await cloudinary.uploader.upload(req.file.path, {
+            folder: 'profile_pictures',
             transformation: [
-                { width: 100, height: 100, crop: 'fill' } // ضبط حجم الصورة
+                { width: 100, height: 100, crop: 'fill' }
             ]
         });
+        console.log('تم رفع الصورة بنجاح إلى Cloudinary:', result.secure_url);
 
         // تحديث الصورة الشخصية في قاعدة البيانات
         const user = await User.findOne({ username: req.session.user });
-        if (!user) return res.status(404).send('المستخدم غير موجود');
-        user.profilePicture = result.secure_url; // رابط الصورة من Cloudinary
+        if (!user) {
+            console.log('المستخدم غير موجود:', req.session.user);
+            return res.status(404).send('المستخدم غير موجود');
+        }
+        user.profilePicture = result.secure_url;
         await user.save();
+        console.log('تم تحديث الصورة الشخصية في قاعدة البيانات:', user.profilePicture);
 
         res.status(200).send('تم تحديث الصورة الشخصية');
     } catch (err) {
