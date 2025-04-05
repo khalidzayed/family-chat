@@ -11,16 +11,6 @@
             margin: 0;
             padding: 0;
         }
-        .status.online::before {
-    content: '';
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    background-color: #25d366;
-    border-radius: 50%;
-    margin-left: 5px;
-}
-        
         .container {
             display: flex;
             height: 100vh;
@@ -240,15 +230,15 @@
                         if (user.username === currentUser) return;
                         const li = document.createElement('li');
                         li.id = `user-${user.username}`;
-                       li.innerHTML = `
-    <div style="display: flex; align-items: center;">
-        <img src="${user.profilePicture || 'https://res.cloudinary.com/demo/image/upload/v1312461204/sample.jpg'}" alt="${user.username}">
-        <span>${user.username}</span>
-    </div>
-    <span class="status ${user.isOnline ? 'online' : ''}">
-        ${user.isOnline ? 'متصل' : user.lastSeen ? `آخر ظهور: ${new Date(user.lastSeen).toLocaleString('ar-EG')}` : 'غير معروف'}
-    </span>
-`;
+                        li.innerHTML = `
+                            <div style="display: flex; align-items: center;">
+                                <img src="${user.profilePicture || 'https://res.cloudinary.com/demo/image/upload/v1312461204/sample.jpg'}" alt="${user.username}">
+                                <span>${user.username}</span>
+                            </div>
+                            <span class="status">
+                                ${user.isOnline ? 'متصل' : user.lastSeen ? `آخر ظهور: ${new Date(user.lastSeen).toLocaleString('ar-EG')}` : 'غير معروف'}
+                            </span>
+                        `;
                         li.onclick = () => startChat(user.username, false);
                         userList.appendChild(li);
                     });
@@ -271,14 +261,14 @@
                                 const li = document.createElement('li');
                                 li.id = `user-${user.username}`;
                                 li.innerHTML = `
-    <div style="display: flex; align-items: center;">
-        <img src="${user.profilePicture || 'https://res.cloudinary.com/demo/image/upload/v1312461204/sample.jpg'}" alt="${user.username}">
-        <span>${user.username}</span>
-    </div>
-    <span class="status ${user.isOnline ? 'online' : ''}">
-        ${user.isOnline ? 'متصل' : user.lastSeen ? `آخر ظهور: ${new Date(user.lastSeen).toLocaleString('ar-EG')}` : 'غير معروف'}
-    </span>
-`;
+                                    <div style="display: flex; align-items: center;">
+                                        <img src="${user.profilePicture || 'https://res.cloudinary.com/demo/image/upload/v1312461204/sample.jpg'}" alt="${user.username}">
+                                        <span>${user.username}</span>
+                                    </div>
+                                    <span class="status">
+                                        ${user.isOnline ? 'متصل' : user.lastSeen ? `آخر ظهور: ${new Date(user.lastSeen).toLocaleString('ar-EG')}` : 'غير معروف'}
+                                    </span>
+                                `;
                                 li.onclick = () => startChat(user.username, false);
                                 userList.appendChild(li);
                             });
