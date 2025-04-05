@@ -54,33 +54,41 @@
         }
         .message {
             margin: 5px 0;
-            padding: 8px;
-            border-radius: 8px;
             max-width: 60%;
             word-wrap: break-word;
             display: flex;
             align-items: flex-start;
         }
         .message.sent {
-            background-color: #dcf8c6;
-            margin-right: 10px;
             margin-left: auto;
-            flex-direction: row-reverse;
+            margin-right: 10px;
+            flex-direction: row;
         }
         .message.received {
-            background-color: #fff;
-            margin-left: 10px;
             margin-right: auto;
+            margin-left: 10px;
+            flex-direction: row;
         }
         .message img {
             width: 30px;
             height: 30px;
             border-radius: 50%;
-            margin: 0 5px;
+            margin-right: 5px;
         }
         .message-content {
             display: flex;
             flex-direction: column;
+            position: relative;
+            background-color: #fff;
+            padding: 8px;
+            border-radius: 8px;
+        }
+        .message.sent .message-content {
+            background-color: #dcf8c6;
+        }
+        .message-content img, .message-content audio {
+            max-width: 200px;
+            margin-top: 5px;
         }
         .message-timestamp {
             font-size: 10px;
@@ -88,13 +96,24 @@
             margin-top: 2px;
             text-align: left;
         }
+        .delete-btn {
+            position: absolute;
+            top: 0;
+            left: 0;
+            background: none;
+            border: none;
+            color: red;
+            cursor: pointer;
+            font-size: 12px;
+        }
         .chat-input {
             display: flex;
             padding: 10px;
             background-color: #fff;
             border-top: 1px solid #ddd;
+            align-items: center;
         }
-        .chat-input input {
+        .chat-input input[type="text"] {
             flex: 1;
             padding: 8px;
             border: 1px solid #ddd;
@@ -109,9 +128,16 @@
             border: none;
             border-radius: 20px;
             cursor: pointer;
+            margin-left: 5px;
         }
         .chat-input button:hover {
             background-color: #128c7e;
+        }
+        .chat-input input[type="file"] {
+            display: none;
+        }
+        .record-btn.recording {
+            background-color: #ff4444;
         }
         .user-list, .group-list {
             list-style: none;
@@ -134,7 +160,7 @@
             width: 30px;
             height: 30px;
             border-radius: 50%;
-            margin-left: 10px;
+            margin-right: 10px;
         }
         .unread-count {
             background-color: #25d366;
@@ -163,6 +189,9 @@
             </div>
             <div class="chat-messages" id="chatMessages"></div>
             <div class="chat-input">
+                <input type="file" id="fileInput" accept="image/*,audio/*">
+                <button onclick="document.getElementById('fileInput').click()">📎</button>
+                <button id="recordBtn" class="record-btn" onclick="toggleRecording()">🎙️</button>
                 <input type="text" id="messageInput" placeholder="اكتب رسالة...">
                 <button onclick="sendMessage()">إرسال</button>
             </div>
@@ -178,7 +207,9 @@
         let lastUserStatus = [];
         let lastUnreadCounts = {};
         let typingTimeout;
-        let userProfiles = {}; // لتخزين بيانات المستخدمين (بما في ذلك الصور الشخصية)
+        let userProfiles = {};
+        let mediaRecorder;
+        let audioChunks = [];
 
         async function fetchUsername() {
             try {
@@ -243,6 +274,15 @@
                     updateChatStatus();
                 }
             });
+
+            socket.on('deleteMessage', ({ messageId, deletedBy }) => {
+                const messageElement = document.querySelector(`.message[data-id="${messageId}"]`);
+                if (messageElement) {
+                    if (deletedBy === currentUsername || messageElement.dataset.sender === deletedBy) {
+                        messageElement.remove();
+                    }
+                }
+            });
         }
 
         async function fetchUserStatus(users, retries = 3, delay = 2000) {
@@ -252,7 +292,6 @@
                     if (!response.ok) throw new Error('فشل جلب حالة المستخدمين');
                     const userStatus = await response.json();
 
-                    // جلب بيانات المستخدمين (بما في ذلك الصور الشخصية)
                     const usersResponse = await fetch('/api/users');
                     if (!usersResponse.ok) throw new Error('فشل جلب بيانات المستخدمين');
                     const usersData = await usersResponse.json();
@@ -433,10 +472,23 @@
             const messageDiv = document.createElement('div');
             const isSent = msg.sender === currentUsername;
             messageDiv.className = `message ${isSent ? 'sent' : 'received'}`;
+            messageDiv.dataset.id = msg._id;
+            messageDiv.dataset.sender = msg.sender;
+
+            let contentHtml = '';
+            if (msg.messageType === 'image') {
+                contentHtml = `<img src="${msg.message}" alt="صورة مرسلة">`;
+            } else if (msg.messageType === 'audio') {
+                contentHtml = `<audio controls src="${msg.message}"></audio>`;
+            } else {
+                contentHtml = `<div>${msg.sender}: ${msg.message}</div>`;
+            }
+
             messageDiv.innerHTML = `
                 <img src="${userProfiles[msg.sender] || 'https://res.cloudinary.com/demo/image/upload/v1312461204/sample.jpg'}" alt="${msg.sender}">
                 <div class="message-content">
-                    <div>${msg.sender}: ${msg.message}</div>
+                    <button class="delete-btn" onclick="deleteMessage('${msg._id}', ${isSent})">حذف</button>
+                    ${contentHtml}
                     <div class="message-timestamp">${new Date(msg.timestamp).toLocaleTimeString('ar-EG')}</div>
                 </div>
             `;
@@ -457,9 +509,81 @@
             socket.emit('privateMessage', {
                 recipient: currentChat,
                 message,
-                isGroup: isGroupChat
+                isGroup: isGroupChat,
+                messageType: 'text'
             });
             messageInput.value = '';
+        }
+
+        async function sendFile(file) {
+            if (!currentChat || !file) return;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/api/upload-file', {
+                    method: 'POST',
+                    body: formData
+                });
+                if (!response.ok) throw new Error('فشل رفع الملف');
+                const data = await response.json();
+                const messageType = file.type.startsWith('image/') ? 'image' : 'audio';
+
+                socket.emit('privateMessage', {
+                    recipient: currentChat,
+                    message: data.url,
+                    isGroup: isGroupChat,
+                    messageType
+                });
+            } catch (err) {
+                console.error('خطأ أثناء رفع الملف:', err);
+            }
+        }
+
+        document.getElementById('fileInput').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) sendFile(file);
+            e.target.value = ''; // إعادة تعيين الإدخال
+        });
+
+        async function toggleRecording() {
+            const recordBtn = document.getElementById('recordBtn');
+            if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+
+                    mediaRecorder.ondataavailable = (e) => {
+                        audioChunks.push(e.data);
+                    };
+
+                    mediaRecorder.onstop = async () => {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                        const file = new File([audioBlob], 'recording.webm', { type: 'audio/webm' });
+                        sendFile(file);
+                    };
+
+                    mediaRecorder.start();
+                    recordBtn.classList.add('recording');
+                    recordBtn.textContent = '🛑';
+                } catch (err) {
+                    console.error('خطأ أثناء التسجيل:', err);
+                }
+            } else {
+                mediaRecorder.stop();
+                recordBtn.classList.remove('recording');
+                recordBtn.textContent = '🎙️';
+            }
+        }
+
+        async function deleteMessage(messageId, isSender) {
+            try {
+                socket.emit('deleteMessage', { messageId, deletedBy: currentUsername, isSender });
+            } catch (err) {
+                console.error('خطأ أثناء حذف الرسالة:', err);
+            }
         }
 
         document.getElementById('messageInput').addEventListener('input', () => {
