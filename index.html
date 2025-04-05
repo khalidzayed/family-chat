@@ -33,12 +33,17 @@
             color: #fff;
             padding: 10px;
             display: flex;
-            justify-content: space-between;
-            align-items: center;
+            flex-direction: column;
+            align-items: flex-end;
         }
         .chat-header h2 {
             margin: 0;
             font-size: 18px;
+        }
+        .chat-status {
+            font-size: 12px;
+            color: #ddd;
+            margin-top: 5px;
         }
         .chat-messages {
             flex: 1;
@@ -53,18 +58,29 @@
             border-radius: 8px;
             max-width: 60%;
             word-wrap: break-word;
+            display: flex;
+            align-items: flex-start;
         }
         .message.sent {
             background-color: #dcf8c6;
             margin-right: 10px;
             margin-left: auto;
-            text-align: right;
+            flex-direction: row-reverse;
         }
         .message.received {
             background-color: #fff;
             margin-left: 10px;
             margin-right: auto;
-            text-align: right;
+        }
+        .message img {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            margin: 0 5px;
+        }
+        .message-content {
+            display: flex;
+            flex-direction: column;
         }
         .message-timestamp {
             font-size: 10px;
@@ -120,10 +136,6 @@
             border-radius: 50%;
             margin-left: 10px;
         }
-        .status {
-            font-size: 12px;
-            color: #888;
-        }
         .unread-count {
             background-color: #25d366;
             color: #fff;
@@ -131,12 +143,6 @@
             padding: 2px 6px;
             font-size: 12px;
             margin-right: 5px;
-        }
-        .typing-indicator {
-            font-size: 12px;
-            color: #888;
-            margin: 5px 10px;
-            display: none;
         }
     </style>
 </head>
@@ -153,9 +159,9 @@
         <div class="chat-area">
             <div class="chat-header">
                 <h2 id="chatTitle">اختر محادثة</h2>
+                <div class="chat-status" id="chatStatus"></div>
             </div>
             <div class="chat-messages" id="chatMessages"></div>
-            <div class="typing-indicator" id="typingIndicator"></div>
             <div class="chat-input">
                 <input type="text" id="messageInput" placeholder="اكتب رسالة...">
                 <button onclick="sendMessage()">إرسال</button>
@@ -172,6 +178,7 @@
         let lastUserStatus = [];
         let lastUnreadCounts = {};
         let typingTimeout;
+        let userProfiles = {}; // لتخزين بيانات المستخدمين (بما في ذلك الصور الشخصية)
 
         async function fetchUsername() {
             try {
@@ -224,9 +231,7 @@
             socket.on('typing', ({ sender, recipient, isGroup }) => {
                 if ((isGroupChat && isGroup && recipient === currentChat) ||
                     (!isGroupChat && !isGroup && sender === currentChat)) {
-                    const typingIndicator = document.getElementById('typingIndicator');
-                    typingIndicator.textContent = `${sender} يكتب الآن...`;
-                    typingIndicator.style.display = 'block';
+                    document.getElementById('chatStatus').textContent = `${sender} يكتب الآن...`;
                     const chatMessages = document.getElementById('chatMessages');
                     chatMessages.scrollTop = chatMessages.scrollHeight;
                 }
@@ -235,9 +240,7 @@
             socket.on('stopTyping', ({ sender, recipient, isGroup }) => {
                 if ((isGroupChat && isGroup && recipient === currentChat) ||
                     (!isGroupChat && !isGroup && sender === currentChat)) {
-                    const typingIndicator = document.getElementById('typingIndicator');
-                    typingIndicator.textContent = '';
-                    typingIndicator.style.display = 'none';
+                    updateChatStatus();
                 }
             });
         }
@@ -248,6 +251,15 @@
                     const response = await fetch('/api/user-status');
                     if (!response.ok) throw new Error('فشل جلب حالة المستخدمين');
                     const userStatus = await response.json();
+
+                    // جلب بيانات المستخدمين (بما في ذلك الصور الشخصية)
+                    const usersResponse = await fetch('/api/users');
+                    if (!usersResponse.ok) throw new Error('فشل جلب بيانات المستخدمين');
+                    const usersData = await usersResponse.json();
+                    usersData.forEach(user => {
+                        userProfiles[user.username] = user.profilePicture;
+                    });
+
                     const userList = document.getElementById('users');
                     const currentUser = currentUsername;
 
@@ -258,12 +270,9 @@
                         li.id = `user-${user.username}`;
                         li.innerHTML = `
                             <div style="display: flex; align-items: center;">
-                                <img src="${user.profilePicture || 'https://res.cloudinary.com/demo/image/upload/v1312461204/sample.jpg'}" alt="${user.username}">
+                                <img src="${userProfiles[user.username] || 'https://res.cloudinary.com/demo/image/upload/v1312461204/sample.jpg'}" alt="${user.username}">
                                 <span>${user.username}</span>
                             </div>
-                            <span class="status">
-                                ${user.isOnline ? 'متصل' : user.lastSeen ? `آخر ظهور: ${new Date(user.lastSeen).toLocaleString('ar-EG')}` : 'غير معروف'}
-                            </span>
                         `;
                         li.onclick = () => startChat(user.username, false);
                         userList.appendChild(li);
@@ -271,6 +280,7 @@
 
                     lastUserStatus = userStatus;
                     fetchUnreadMessages();
+                    updateChatStatus();
                     return;
                 } catch (err) {
                     console.error('خطأ في جلب حالة المستخدمين:', err);
@@ -287,12 +297,9 @@
                                 li.id = `user-${user.username}`;
                                 li.innerHTML = `
                                     <div style="display: flex; align-items: center;">
-                                        <img src="${user.profilePicture || 'https://res.cloudinary.com/demo/image/upload/v1312461204/sample.jpg'}" alt="${user.username}">
+                                        <img src="${userProfiles[user.username] || 'https://res.cloudinary.com/demo/image/upload/v1312461204/sample.jpg'}" alt="${user.username}">
                                         <span>${user.username}</span>
                                     </div>
-                                    <span class="status">
-                                        ${user.isOnline ? 'متصل' : user.lastSeen ? `آخر ظهور: ${new Date(user.lastSeen).toLocaleString('ar-EG')}` : 'غير معروف'}
-                                    </span>
                                 `;
                                 li.onclick = () => startChat(user.username, false);
                                 userList.appendChild(li);
@@ -324,7 +331,7 @@
                         </div>
                     `;
                     li.onclick = () => startChat(group.name, true);
- groupList.appendChild(li);
+                    groupList.appendChild(li);
                 });
 
                 fetchUnreadMessages();
@@ -384,13 +391,28 @@
             }
         }
 
+        function updateChatStatus() {
+            if (!currentChat || isGroupChat) {
+                document.getElementById('chatStatus').textContent = '';
+                return;
+            }
+
+            const userStatus = lastUserStatus.find(user => user.username === currentChat);
+            if (userStatus) {
+                document.getElementById('chatStatus').textContent = userStatus.isOnline
+                    ? 'متصل الآن'
+                    : userStatus.lastSeen
+                    ? `آخر ظهور: ${new Date(userStatus.lastSeen).toLocaleString('ar-EG')}`
+                    : 'غير معروف';
+            }
+        }
+
         async function startChat(recipient, isGroup) {
             currentChat = recipient;
             isGroupChat = isGroup;
             document.getElementById('chatTitle').textContent = recipient;
+            document.getElementById('chatStatus').textContent = '';
             document.getElementById('chatMessages').innerHTML = '';
-            document.getElementById('typingIndicator').textContent = '';
-            document.getElementById('typingIndicator').style.display = 'none';
 
             socket.emit('joinRoom', isGroup ? recipient : [currentUsername, recipient].sort().join('-'));
 
@@ -402,6 +424,8 @@
             } catch (err) {
                 console.error('خطأ في جلب الرسائل:', err);
             }
+
+            updateChatStatus();
         }
 
         function displayMessage(msg) {
@@ -410,8 +434,11 @@
             const isSent = msg.sender === currentUsername;
             messageDiv.className = `message ${isSent ? 'sent' : 'received'}`;
             messageDiv.innerHTML = `
-                <div>${msg.sender}: ${msg.message}</div>
-                <div class="message-timestamp">${new Date(msg.timestamp).toLocaleTimeString('ar-EG')}</div>
+                <img src="${userProfiles[msg.sender] || 'https://res.cloudinary.com/demo/image/upload/v1312461204/sample.jpg'}" alt="${msg.sender}">
+                <div class="message-content">
+                    <div>${msg.sender}: ${msg.message}</div>
+                    <div class="message-timestamp">${new Date(msg.timestamp).toLocaleTimeString('ar-EG')}</div>
+                </div>
             `;
             chatMessages.appendChild(messageDiv);
             chatMessages.scrollTop = chatMessages.scrollHeight;
