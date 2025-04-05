@@ -9,6 +9,7 @@ const CryptoJS = require('crypto-js');
 const MongoStore = require('connect-mongo');
 const bcrypt = require('bcrypt');
 const compression = require('compression');
+const multer = require('multer'); // للتعامل مع رفع الملفات
 
 const app = express();
 const server = http.createServer(app);
@@ -16,8 +17,19 @@ const io = socketIo(server);
 
 app.use(compression());
 app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.json()); // للتعامل مع طلبات JSON
+app.use(express.json());
 app.use(express.static(__dirname));
+
+// إعداد multer لرفع الصور
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, 'uploads/'); // مجلد لتخزين الصور
+    },
+    filename: (req, file, cb) => {
+        cb(null, `${Date.now()}-${file.originalname}`); // اسم الملف مع طابع زمني
+    }
+});
+const upload = multer({ storage });
 
 app.use(session({
     secret: process.env.SESSION_SECRET || 'family-chat-secret',
@@ -46,10 +58,11 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://khalidzayed9:Mihyar%4
     initializeUsers();
 }).catch(err => console.error('فشل الاتصال بـ MongoDB:', err));
 
-// نموذج المستخدم
+// نموذج المستخدم مع حقل الصورة الشخصية
 const UserSchema = new mongoose.Schema({
     username: { type: String, unique: true, required: true },
-    password: { type: String, required: true }
+    password: { type: String, required: true },
+    profilePicture: { type: String, default: '/default-avatar.png' } // رابط الصورة الشخصية
 });
 
 UserSchema.pre('save', async function(next) {
@@ -66,21 +79,19 @@ UserSchema.pre('save', async function(next) {
 
 const User = mongoose.model('User', UserSchema);
 
-// نموذج الرسالة
 const MessageSchema = new mongoose.Schema({
     sender: { type: String, required: true },
-    recipient: { type: String, required: true }, // للمحادثات الخاصة أو اسم المجموعة
+    recipient: { type: String, required: true },
     message: { type: String, required: true },
     timestamp: { type: Date, default: Date.now },
-    isGroup: { type: Boolean, default: false } // لتحديد ما إذا كانت الرسالة لمجموعة
+    isGroup: { type: Boolean, default: false }
 });
 
 const Message = mongoose.model('Message', MessageSchema);
 
-// نموذج المجموعة
 const GroupSchema = new mongoose.Schema({
     name: { type: String, required: true, unique: true },
-    members: [{ type: String }], // أسماء المستخدمين في المجموعة
+    members: [{ type: String }],
     creator: { type: String, required: true },
     createdAt: { type: Date, default: Date.now }
 });
@@ -103,6 +114,10 @@ app.get('/chat', isAuthenticated, (req, res) => {
 
 app.get('/manage-users', isAuthenticated, (req, res) => {
     res.sendFile(path.join(__dirname, 'manage-users.html'));
+});
+
+app.get('/profile', isAuthenticated, (req, res) => {
+    res.sendFile(path.join(__dirname, 'profile.html'));
 });
 
 app.get('/api/username', (req, res) => {
@@ -138,7 +153,7 @@ app.get('/api/messages', isAuthenticated, async (req, res) => {
 
 app.get('/api/users', isAuthenticated, async (req, res) => {
     try {
-        const users = await User.find({}, 'username');
+        const users = await User.find({}, 'username profilePicture');
         res.json(users);
     } catch (err) {
         res.status(500).json({ error: 'فشل جلب المستخدمين' });
@@ -181,7 +196,19 @@ app.delete('/api/messages', isAuthenticated, async (req, res) => {
     }
 });
 
-// API لإنشاء مجموعة
+// API لرفع الصورة الشخصية
+app.post('/api/upload-profile-picture', isAuthenticated, upload.single('profilePicture'), async (req, res) => {
+    try {
+        const user = await User.findOne({ username: req.session.user });
+        if (!user) return res.status(404).send('المستخدم غير موجود');
+        user.profilePicture = `/uploads/${req.file.filename}`;
+        await user.save();
+        res.status(200).send('تم تحديث الصورة الشخصية');
+    } catch (err) {
+        res.status(500).send('فشل تحديث الصورة الشخصية: ' + err.message);
+    }
+});
+
 app.post('/api/groups', isAuthenticated, async (req, res) => {
     const { name, members } = req.body;
     if (!name || !members || !Array.isArray(members)) {
@@ -190,18 +217,17 @@ app.post('/api/groups', isAuthenticated, async (req, res) => {
     try {
         const group = new Group({
             name,
-            members: [...new Set([...members, req.session.user])], // إضافة المنشئ إلى الأعضاء
+            members: [...new Set([...members, req.session.user])],
             creator: req.session.user
         });
         await group.save();
-        io.emit('groupCreated', group); // إرسال إشعار لتحديث قائمة المجموعات
+        io.emit('groupCreated', group);
         res.status(201).send('تم إنشاء المجموعة');
     } catch (err) {
         res.status(400).send('اسم المجموعة موجود بالفعل أو خطأ آخر: ' + err.message);
     }
 });
 
-// API لجلب المجموعات
 app.get('/api/groups', isAuthenticated, async (req, res) => {
     try {
         const groups = await Group.find({ members: req.session.user });
@@ -271,13 +297,19 @@ io.on('connection', async (socket) => {
             sender: socket.username,
             recipient: isGroup ? recipient : recipient,
             message: encryptedMsg,
-            isGroup
+            isGroup,
+            timestamp: new Date() // التأكد من إرسال التاريخ
         });
 
         try {
             await msgData.save();
             const currentTime = new Date().toLocaleTimeString('ar-EG');
-            const fullMessage = `${socket.username} [${currentTime}]: ${message}`;
+            const fullMessage = {
+                sender: socket.username,
+                message,
+                timestamp: new Date().toISOString(),
+                isGroup
+            };
             io.to(room).emit('message', fullMessage);
 
             if (!isGroup) {
