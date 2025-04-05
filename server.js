@@ -35,7 +35,7 @@ const upload = multer({
 
 // إعداد Cloudinary
 cloudinary.config({
-    cloud_name: 'diara9dzg', // استبدل بـ Cloud Name الخاص بك
+      cloud_name: 'diara9dzg', // استبدل بـ Cloud Name الخاص بك
     api_key: '969277843346462',       // استبدل بـ API Key الخاص بك
     api_secret: 'uuee0QzBTNDVB-809XDoJCDRJhE'  // استبدل بـ API Secret الخاص بك
 });
@@ -67,7 +67,7 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://khalidzayed9:Mihyar%4
     initializeUsers();
 }).catch(err => console.error('فشل الاتصال بـ MongoDB:', err));
 
-// نموذج المستخدم مع حقل الصورة الشخصية
+// نموذج المستخدم مع حقل الصورة الشخصية وآخر ظهور
 const UserSchema = new mongoose.Schema({
     username: { type: String, unique: true, required: true },
     password: { type: String, required: true },
@@ -94,7 +94,8 @@ const MessageSchema = new mongoose.Schema({
     recipient: { type: String, required: true },
     message: { type: String, required: true },
     timestamp: { type: Date, default: Date.now },
-    isGroup: { type: Boolean, default: false }
+    isGroup: { type: Boolean, default: false },
+    isRead: { type: Boolean, default: false } // حقل جديد لتحديد ما إذا تم قراءة الرسالة
 });
 
 const Message = mongoose.model('Message', MessageSchema);
@@ -151,6 +152,20 @@ app.get('/api/messages', isAuthenticated, async (req, res) => {
                 isGroup: false
             };
         const messages = await Message.find(query).sort({ timestamp: 1 }).limit(50);
+
+        // تحديث حالة القراءة للرسائل التي أرسلها الآخرون
+        if (!isGroup) {
+            await Message.updateMany(
+                { sender: recipient, recipient: req.session.user, isRead: false },
+                { isRead: true }
+            );
+        } else {
+            await Message.updateMany(
+                { recipient, isGroup: true, isRead: false, sender: { $ne: req.session.user } },
+                { isRead: true }
+            );
+        }
+
         const decryptedMessages = messages.map(msg => ({
             ...msg._doc,
             message: CryptoJS.AES.decrypt(msg.message, ENCRYPTION_KEY).toString(CryptoJS.enc.Utf8)
@@ -242,6 +257,88 @@ app.post('/api/upload-profile-picture', isAuthenticated, upload.single('profileP
     }
 });
 
+// API لجلب حالة الاتصال وآخر ظهور للمستخدمين
+app.get('/api/user-status', isAuthenticated, async (req, res) => {
+    try {
+        const users = await User.find({}, 'username lastSeen');
+        const userStatus = users.map(user => ({
+            username: user.username,
+            isOnline: connectedUsers.has(user.username),
+            lastSeen: user.lastSeen
+        }));
+        res.json(userStatus);
+    } catch (err) {
+        res.status(500).json({ error: 'فشل جلب حالة المستخدمين' });
+    }
+});
+
+// API لجلب عدد الرسائل غير المقروءة
+app.get('/api/unread-messages', isAuthenticated, async (req, res) => {
+    try {
+        // جلب الرسائل غير المقروءة للمحادثات الفردية
+        const privateMessages = await Message.aggregate([
+            {
+                $match: {
+                    recipient: req.session.user,
+                    isGroup: false,
+                    isRead: false
+                }
+            },
+            {
+                $group: {
+                    _id: '$sender',
+                    count: { $sum: 1 }
+                }
+            }
+        ]);
+
+        // جلب الرسائل غير المقروءة للمجموعات
+        const groupMessages = await Message.aggregate([
+            {
+                $match: {
+                    isGroup: true,
+                    isRead: false,
+                    sender: { $ne: req.session.user }
+                }
+            },
+            {
+                $lookup: {
+                    from: 'groups',
+                    localField: 'recipient',
+                    foreignField: 'name',
+                    as: 'group'
+                }
+            },
+            {
+                $unwind: '$group'
+            },
+            {
+                $match: {
+                    'group.members': req.session.user
+                }
+            },
+            {
+                $group: {
+                    _id: '$recipient',
+                    count: { $sum: 1 }
+                }
+            }
+        ]);
+
+        const unreadCounts = {};
+        privateMessages.forEach(msg => {
+            unreadCounts[msg._id] = msg.count;
+        });
+        groupMessages.forEach(msg => {
+            unreadCounts[msg._id] = msg.count;
+        });
+
+        res.json(unreadCounts);
+    } catch (err) {
+        res.status(500).json({ error: 'فشل جلب عدد الرسائل غير المقروءة' });
+    }
+});
+
 app.post('/api/groups', isAuthenticated, async (req, res) => {
     const { name, members } = req.body;
     if (!name || !members || !Array.isArray(members)) {
@@ -311,6 +408,7 @@ io.use((socket, next) => {
 });
 
 io.on('connection', async (socket) => {
+    // إضافة المستخدم إلى قائمة المتصلين
     connectedUsers.add(socket.username);
     io.emit('users', Array.from(connectedUsers));
 
@@ -331,7 +429,8 @@ io.on('connection', async (socket) => {
             recipient: isGroup ? recipient : recipient,
             message: encryptedMsg,
             isGroup,
-            timestamp: new Date()
+            timestamp: new Date(),
+            isRead: false // تعيين الرسالة كغير مقروءة عند إرسالها
         });
 
         try {
@@ -341,7 +440,8 @@ io.on('connection', async (socket) => {
                 sender: socket.username,
                 message,
                 timestamp: new Date().toISOString(),
-                isGroup
+                isGroup,
+                isRead: false
             };
             io.to(room).emit('message', fullMessage);
 
@@ -356,9 +456,24 @@ io.on('connection', async (socket) => {
         }
     });
 
-    socket.on('disconnect', () => {
+    socket.on('disconnect', async () => {
         connectedUsers.delete(socket.username);
         io.emit('users', Array.from(connectedUsers));
+
+        // تحديث lastSeen عند قطع الاتصال
+        try {
+            await User.updateOne(
+                { username: socket.username },
+                { lastSeen: new Date() }
+            );
+            console.log(`تم تحديث lastSeen لـ ${socket.username}`);
+        } catch (err) {
+            console.error('خطأ أثناء تحديث lastSeen:', err);
+        }
+    });
+
+    socket.on('groupCreated', (group) => {
+        displayGroups();
     });
 });
 
