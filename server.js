@@ -449,7 +449,7 @@ io.on('connection', async (socket) => {
     });
 
     socket.on('privateMessage', async ({ recipient, message, isGroup, messageType }) => {
-        if (!message || message.trim() === '' && messageType === 'text') return;
+        if (!message || (messageType === 'text' && message.trim() === '')) return;
 
         const room = isGroup ? recipient : [socket.username, recipient].sort().join('-');
         const encryptedMsg = messageType === 'text' ? CryptoJS.AES.encrypt(message, ENCRYPTION_KEY).toString() : message;
@@ -468,6 +468,7 @@ io.on('connection', async (socket) => {
             const fullMessage = {
                 _id: msgData._id,
                 sender: socket.username,
+                recipient: isGroup ? recipient : recipient,
                 message,
                 timestamp: new Date().toISOString(),
                 isGroup,
