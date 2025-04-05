@@ -67,6 +67,8 @@
                 }
             } catch (error) {
                 console.error('خطأ في جلب الصورة الشخصية:', error);
+                document.getElementById('message').style.color = '#f44336';
+                document.getElementById('message').textContent = 'فشل جلب الصورة الشخصية: ' + error.message;
             }
         }
 
@@ -79,9 +81,18 @@
 
         // رفع الصورة باستخدام Cloudinary Upload Widget
         function uploadProfilePicture() {
+            // التحقق من توفر مكتبة Cloudinary
+            if (typeof cloudinary === 'undefined') {
+                console.error('مكتبة Cloudinary لم يتم تحميلها بشكل صحيح');
+                document.getElementById('message').style.color = '#f44336';
+                document.getElementById('message').textContent = 'فشل تحميل مكتبة Cloudinary. تحقق من اتصالك بالإنترنت.';
+                return;
+            }
+
+            console.log('فتح نافذة Cloudinary Upload Widget...');
             cloudinary.openUploadWidget({
                 cloudName: 'diara9dzg', // استبدل بـ Cloud Name الخاص بك
-                uploadPreset: 'ml_default', // تحتاج إلى إنشاء Upload Preset في Cloudinary
+                uploadPreset: 'ml_default', // استبدل بـ Upload Preset الخاص بك
                 sources: ['local', 'url', 'camera'],
                 cropping: true,
                 croppingAspectRatio: 1,
@@ -90,7 +101,15 @@
                 maxImageWidth: 100,
                 maxImageHeight: 100
             }, async (error, result) => {
-                if (!error && result && result.event === 'success') {
+                if (error) {
+                    console.error('خطأ في Cloudinary Upload Widget:', error);
+                    document.getElementById('message').style.color = '#f44336';
+                    document.getElementById('message').textContent = 'فشل رفع الصورة: ' + error.message;
+                    return;
+                }
+
+                if (result && result.event === 'success') {
+                    console.log('تم رفع الصورة بنجاح:', result.info);
                     const imageUrl = result.info.secure_url;
                     try {
                         const response = await fetch('/api/upload-profile-picture', {
@@ -103,12 +122,10 @@
                         document.getElementById('message').textContent = 'تم تحديث الصورة بنجاح';
                         fetchProfilePicture();
                     } catch (error) {
+                        console.error('خطأ أثناء تحديث الصورة:', error);
                         document.getElementById('message').style.color = '#f44336';
                         document.getElementById('message').textContent = 'فشل تحديث الصورة: ' + error.message;
                     }
-                } else if (error) {
-                    document.getElementById('message').style.color = '#f44336';
-                    document.getElementById('message').textContent = 'فشل رفع الصورة: ' + error.message;
                 }
             });
         }
