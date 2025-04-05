@@ -35,7 +35,7 @@ const upload = multer({
 
 // إعداد Cloudinary
 cloudinary.config({
-      cloud_name: 'diara9dzg', // استبدل بـ Cloud Name الخاص بك
+    cloud_name: 'diara9dzg', // استبدل بـ Cloud Name الخاص بك
     api_key: '969277843346462',       // استبدل بـ API Key الخاص بك
     api_secret: 'uuee0QzBTNDVB-809XDoJCDRJhE'  // استبدل بـ API Secret الخاص بك
 });
@@ -72,7 +72,7 @@ const UserSchema = new mongoose.Schema({
     username: { type: String, unique: true, required: true },
     password: { type: String, required: true },
     profilePicture: { type: String, default: 'https://res.cloudinary.com/demo/image/upload/v1312461204/sample.jpg' },
-    lastSeen: { type: Date, default: null } // حقل جديد لتخزين آخر ظهور
+    lastSeen: { type: Date, default: null }
 });
 
 UserSchema.pre('save', async function(next) {
@@ -95,7 +95,7 @@ const MessageSchema = new mongoose.Schema({
     message: { type: String, required: true },
     timestamp: { type: Date, default: Date.now },
     isGroup: { type: Boolean, default: false },
-    isRead: { type: Boolean, default: false } // حقل جديد لتحديد ما إذا تم قراءة الرسالة
+    isRead: { type: Boolean, default: false }
 });
 
 const Message = mongoose.model('Message', MessageSchema);
@@ -153,7 +153,6 @@ app.get('/api/messages', isAuthenticated, async (req, res) => {
             };
         const messages = await Message.find(query).sort({ timestamp: 1 }).limit(50);
 
-        // تحديث حالة القراءة للرسائل التي أرسلها الآخرون
         if (!isGroup) {
             await Message.updateMany(
                 { sender: recipient, recipient: req.session.user, isRead: false },
@@ -221,17 +220,14 @@ app.delete('/api/messages', isAuthenticated, async (req, res) => {
     }
 });
 
-// API لرفع الصورة الشخصية باستخدام multer و Cloudinary
 app.post('/api/upload-profile-picture', isAuthenticated, upload.single('profilePicture'), async (req, res) => {
     try {
-        // التحقق من وجود ملف مرفوع
         if (!req.file) {
             console.log('لم يتم رفع أي ملف');
             return res.status(400).send('لم يتم رفع أي صورة');
         }
 
         console.log('جاري رفع الصورة إلى Cloudinary:', req.file.path);
-        // رفع الصورة إلى Cloudinary
         const result = await cloudinary.uploader.upload(req.file.path, {
             folder: 'profile_pictures',
             transformation: [
@@ -240,7 +236,6 @@ app.post('/api/upload-profile-picture', isAuthenticated, upload.single('profileP
         });
         console.log('تم رفع الصورة بنجاح إلى Cloudinary:', result.secure_url);
 
-        // تحديث الصورة الشخصية في قاعدة البيانات
         const user = await User.findOne({ username: req.session.user });
         if (!user) {
             console.log('المستخدم غير موجود:', req.session.user);
@@ -257,7 +252,6 @@ app.post('/api/upload-profile-picture', isAuthenticated, upload.single('profileP
     }
 });
 
-// API لجلب حالة الاتصال وآخر ظهور للمستخدمين
 app.get('/api/user-status', isAuthenticated, async (req, res) => {
     try {
         const users = await User.find({}, 'username lastSeen');
@@ -272,10 +266,8 @@ app.get('/api/user-status', isAuthenticated, async (req, res) => {
     }
 });
 
-// API لجلب عدد الرسائل غير المقروءة
 app.get('/api/unread-messages', isAuthenticated, async (req, res) => {
     try {
-        // جلب الرسائل غير المقروءة للمحادثات الفردية
         const privateMessages = await Message.aggregate([
             {
                 $match: {
@@ -292,7 +284,6 @@ app.get('/api/unread-messages', isAuthenticated, async (req, res) => {
             }
         ]);
 
-        // جلب الرسائل غير المقروءة للمجموعات
         const groupMessages = await Message.aggregate([
             {
                 $match: {
@@ -400,7 +391,7 @@ app.get('/logout', (req, res) => {
 const connectedUsers = new Set();
 io.use((socket, next) => {
     const username = socket.handshake.query.username;
-    if (username) {
+    if (username && username !== 'null') { // التأكد من أن اسم المستخدم ليس null
         socket.username = username;
         return next();
     }
@@ -408,7 +399,6 @@ io.use((socket, next) => {
 });
 
 io.on('connection', async (socket) => {
-    // إضافة المستخدم إلى قائمة المتصلين
     connectedUsers.add(socket.username);
     io.emit('users', Array.from(connectedUsers));
 
@@ -430,7 +420,7 @@ io.on('connection', async (socket) => {
             message: encryptedMsg,
             isGroup,
             timestamp: new Date(),
-            isRead: false // تعيين الرسالة كغير مقروءة عند إرسالها
+            isRead: false
         });
 
         try {
@@ -460,7 +450,6 @@ io.on('connection', async (socket) => {
         connectedUsers.delete(socket.username);
         io.emit('users', Array.from(connectedUsers));
 
-        // تحديث lastSeen عند قطع الاتصال
         try {
             await User.updateOne(
                 { username: socket.username },
@@ -473,7 +462,7 @@ io.on('connection', async (socket) => {
     });
 
     socket.on('groupCreated', (group) => {
-        displayGroups();
+        io.emit('groupCreated', group);
     });
 });
 
