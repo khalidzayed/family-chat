@@ -11,16 +11,6 @@
             margin: 0;
             padding: 0;
         }
-.status.online::before {
-    content: '';
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    background-color: #25d366;
-    border-radius: 50%;
-    margin-left: 5px;
-}
-        
         .container {
             display: flex;
             height: 100vh;
@@ -168,27 +158,26 @@
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
-        let socket; // سنقوم بتعريف الاتصال بعد جلب اسم المستخدم
+        let socket;
         let currentChat = null;
         let isGroupChat = false;
-        let currentUsername = null; // متغير لتخزين اسم المستخدم
+        let currentUsername = null;
+        let lastUserStatus = []; // لتخزين حالة المستخدمين الأخيرة
+        let lastUnreadCounts = {}; // لتخزين عدد الرسائل غير المقروءة الأخير
 
         async function fetchUsername() {
             try {
                 const response = await fetch('/api/username');
                 if (!response.ok) throw new Error('فشل جلب اسم المستخدم');
                 const data = await response.json();
-                currentUsername = data.username; // تخزين اسم المستخدم في متغير محلي
+                currentUsername = data.username;
 
-                // إنشاء أو إعادة الاتصال بـ Socket.IO مع اسم المستخدم
                 if (socket) {
                     socket.disconnect();
                 }
-                socket = io({ query: { username: currentUsername } });
+                socket = io({ query: { username: encodeURIComponent(currentUsername) } });
 
-                // إعداد مستمعي الأحداث بعد الاتصال
                 setupSocketListeners();
-
                 return currentUsername;
             } catch (err) {
                 console.error('خطأ في جلب اسم المستخدم:', err);
@@ -197,6 +186,18 @@
         }
 
         function setupSocketListeners() {
+            socket.on('connect', () => {
+                console.log('تم الاتصال بـ Socket.IO');
+            });
+
+            socket.on('connect_error', (err) => {
+                console.error('خطأ في الاتصال بـ Socket.IO:', err.message);
+                // إعادة المحاولة بعد 5 ثوانٍ
+                setTimeout(() => {
+                    socket.connect();
+                }, 5000);
+            });
+
             socket.on('users', (users) => {
                 fetchUserStatus(users);
             });
@@ -206,7 +207,7 @@
                     (!isGroupChat && !msg.isGroup && msg.sender === currentChat)) {
                     displayMessage(msg);
                 }
-                fetchUnreadMessages(); // تحديث عدد الرسائل غير المقروءة
+                fetchUnreadMessages();
             });
 
             socket.on('groupCreated', (group) => {
@@ -214,35 +215,66 @@
             });
         }
 
-        async function fetchUserStatus(users) {
-            try {
-                const response = await fetch('/api/user-status');
-                if (!response.ok) throw new Error('فشل جلب حالة المستخدمين');
-                const userStatus = await response.json();
-                const userList = document.getElementById('users');
-                userList.innerHTML = '';
-                const currentUser = await fetchUsername();
+        async function fetchUserStatus(users, retries = 3, delay = 2000) {
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch('/api/user-status');
+                    if (!response.ok) throw new Error('فشل جلب حالة المستخدمين');
+                    const userStatus = await response.json();
+                    const userList = document.getElementById('users');
+                    const currentUser = currentUsername;
 
-                userStatus.forEach(user => {
-                    if (user.username === currentUser) return;
-                    const li = document.createElement('li');
-                    li.id = `user-${user.username}`;
-                    li.innerHTML = `
-                        <div style="display: flex; align-items: center;">
-                            <img src="${user.profilePicture || 'https://res.cloudinary.com/demo/image/upload/v1312461204/sample.jpg'}" alt="${user.username}">
-                            <span>${user.username}</span>
-                        </div>
-                        <span class="status">
-                            ${user.isOnline ? 'متصل' : user.lastSeen ? `آخر ظهور: ${new Date(user.lastSeen).toLocaleString('ar-EG')}` : 'غير معروف'}
-                        </span>
-                    `;
-                    li.onclick = () => startChat(user.username, false);
-                    userList.appendChild(li);
-                });
+                    // تحديث قائمة المستخدمين فقط إذا نجح الطلب
+                    userList.innerHTML = '';
+                    userStatus.forEach(user => {
+                        if (user.username === currentUser) return;
+                        const li = document.createElement('li');
+                        li.id = `user-${user.username}`;
+                        li.innerHTML = `
+                            <div style="display: flex; align-items: center;">
+                                <img src="${user.profilePicture || 'https://res.cloudinary.com/demo/image/upload/v1312461204/sample.jpg'}" alt="${user.username}">
+                                <span>${user.username}</span>
+                            </div>
+                            <span class="status">
+                                ${user.isOnline ? 'متصل' : user.lastSeen ? `آخر ظهور: ${new Date(user.lastSeen).toLocaleString('ar-EG')}` : 'غير معروف'}
+                            </span>
+                        `;
+                        li.onclick = () => startChat(user.username, false);
+                        userList.appendChild(li);
+                    });
 
-                fetchUnreadMessages(); // تحديث عدد الرسائل غير المقروءة
-            } catch (err) {
-                console.error('خطأ في جلب حالة المستخدمين:', err);
+                    lastUserStatus = userStatus; // تخزين الحالة الأخيرة
+                    fetchUnreadMessages(); // تحديث عدد الرسائل غير المقروءة
+                    return; // الخروج من الحلقة إذا نجح الطلب
+                } catch (err) {
+                    console.error('خطأ في جلب حالة المستخدمين:', err);
+                    if (i < retries - 1) {
+                        console.log(`إعادة المحاولة ${i + 1}/${retries} بعد ${delay} مللي ثانية...`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                    } else {
+                        // إذا فشلت كل المحاولات، استخدم الحالة الأخيرة
+                        if (lastUserStatus.length > 0) {
+                            const userList = document.getElementById('users');
+                            userList.innerHTML = '';
+                            lastUserStatus.forEach(user => {
+                                if (user.username === currentUsername) return;
+                                const li = document.createElement('li');
+                                li.id = `user-${user.username}`;
+                                li.innerHTML = `
+                                    <div style="display: flex; align-items: center;">
+                                        <img src="${user.profilePicture || 'https://res.cloudinary.com/demo/image/upload/v1312461204/sample.jpg'}" alt="${user.username}">
+                                        <span>${user.username}</span>
+                                    </div>
+                                    <span class="status">
+                                        ${user.isOnline ? 'متصل' : user.lastSeen ? `آخر ظهور: ${new Date(user.lastSeen).toLocaleString('ar-EG')}` : 'غير معروف'}
+                                    </span>
+                                `;
+                                li.onclick = () => startChat(user.username, false);
+                                userList.appendChild(li);
+                            });
+                        }
+                    }
+                }
             }
         }
 
@@ -267,51 +299,91 @@
                     groupList.appendChild(li);
                 });
 
-                fetchUnreadMessages(); // تحديث عدد الرسائل غير المقروءة
+                fetchUnreadMessages();
             } catch (err) {
                 console.error('خطأ في جلب المجموعات:', err);
             }
         }
 
-        async function fetchUnreadMessages() {
-            try {
-                const response = await fetch('/api/unread-messages');
-                if (!response.ok) throw new Error('فشل جلب عدد الرسائل غير المقروءة');
-                const unreadCounts = await response.json();
+        async function fetchUnreadMessages(retries = 3, delay = 2000) {
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch('/api/unread-messages');
+                    if (!response.ok) throw new Error('فشل جلب عدد الرسائل غير المقروءة');
+                    const unreadCounts = await response.json();
 
-                // تحديث عدد الرسائل غير المقروءة للمستخدمين
-                document.querySelectorAll('.user-list li').forEach(li => {
-                    const username = li.querySelector('span').textContent;
-                    const unreadCount = unreadCounts[username] || 0;
-                    let badge = li.querySelector('.unread-count');
-                    if (!badge && unreadCount > 0) {
-                        badge = document.createElement('span');
-                        badge.className = 'unread-count';
-                        li.querySelector('div').appendChild(badge);
-                    }
-                    if (badge) {
-                        badge.textContent = unreadCount;
-                        badge.style.display = unreadCount > 0 ? 'inline-block' : 'none';
-                    }
-                });
+                    // تحديث عدد الرسائل غير المقروءة للمستخدمين
+                    document.querySelectorAll('.user-list li').forEach(li => {
+                        const username = li.querySelector('span').textContent;
+                        const unreadCount = unreadCounts[username] || 0;
+                        let badge = li.querySelector('.unread-count');
+                        if (!badge && unreadCount > 0) {
+                            badge = document.createElement('span');
+                            badge.className = 'unread-count';
+                            li.querySelector('div').appendChild(badge);
+                        }
+                        if (badge) {
+                            badge.textContent = unreadCount;
+                            badge.style.display = unreadCount > 0 ? 'inline-block' : 'none';
+                        }
+                    });
 
-                // تحديث عدد الرسائل غير المقروءة للمجموعات
-                document.querySelectorAll('.group-list li').forEach(li => {
-                    const groupName = li.querySelector('span').textContent;
-                    const unreadCount = unreadCounts[groupName] || 0;
-                    let badge = li.querySelector('.unread-count');
-                    if (!badge && unreadCount > 0) {
-                        badge = document.createElement('span');
-                        badge.className = 'unread-count';
-                        li.querySelector('div').appendChild(badge);
+                    // تحديث عدد الرسائل غير المقروءة للمجموعات
+                    document.querySelectorAll('.group-list li').forEach(li => {
+                        const groupName = li.querySelector('span').textContent;
+                        const unreadCount = unreadCounts[groupName] || 0;
+                        let badge = li.querySelector('.unread-count');
+                        if (!badge && unreadCount > 0) {
+                            badge = document.createElement('span');
+                            badge.className = 'unread-count';
+                            li.querySelector('div').appendChild(badge);
+                        }
+                        if (badge) {
+                            badge.textContent = unreadCount;
+                            badge.style.display = unreadCount > 0 ? 'inline-block' : 'none';
+                        }
+                    });
+
+                    lastUnreadCounts = unreadCounts; // تخزين العدد الأخير
+                    return; // الخروج من الحلقة إذا نجح الطلب
+                } catch (err) {
+                    console.error('خطأ في جلب عدد الرسائل غير المقروءة:', err);
+                    if (i < retries - 1) {
+                        console.log(`إعادة المحاولة ${i + 1}/${retries} بعد ${delay} مللي ثانية...`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                    } else {
+                        // إذا فشلت كل المحاولات، استخدم العدد الأخير
+                        document.querySelectorAll('.user-list li').forEach(li => {
+                            const username = li.querySelector('span').textContent;
+                            const unreadCount = lastUnreadCounts[username] || 0;
+                            let badge = li.querySelector('.unread-count');
+                            if (!badge && unreadCount > 0) {
+                                badge = document.createElement('span');
+                                badge.className = 'unread-count';
+                                li.querySelector('div').appendChild(badge);
+                            }
+                            if (badge) {
+                                badge.textContent = unreadCount;
+                                badge.style.display = unreadCount > 0 ? 'inline-block' : 'none';
+                            }
+                        });
+
+                        document.querySelectorAll('.group-list li').forEach(li => {
+                            const groupName = li.querySelector('span').textContent;
+                            const unreadCount = lastUnreadCounts[groupName] || 0;
+                            let badge = li.querySelector('.unread-count');
+                            if (!badge && unreadCount > 0) {
+                                badge = document.createElement('span');
+                                badge.className = 'unread-count';
+                                li.querySelector('div').appendChild(badge);
+                            }
+                            if (badge) {
+                                badge.textContent = unreadCount;
+                                badge.style.display = unreadCount > 0 ? 'inline-block' : 'none';
+                            }
+                        });
                     }
-                    if (badge) {
-                        badge.textContent = unreadCount;
-                        badge.style.display = unreadCount > 0 ? 'inline-block' : 'none';
-                    }
-                });
-            } catch (err) {
-                console.error('خطأ في جلب عدد الرسائل غير المقروءة:', err);
+                }
             }
         }
 
@@ -363,12 +435,10 @@
             if (e.key === 'Enter') sendMessage();
         });
 
-        // استدعاء fetchUsername عند تحميل الصفحة
         fetchUsername().then(() => {
             displayGroups();
         }).catch(err => {
             console.error('فشل التهيئة:', err);
-            // يمكنك إعادة توجيه المستخدم إلى صفحة تسجيل الدخول إذا فشل جلب اسم المستخدم
             window.location.href = '/';
         });
     </script>
