@@ -1,1 +1,108 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>الملف الشخصي</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f2f5;
+            padding: 20px;
+            text-align: center;
+        }
+        .profile-container {
+            max-width: 400px;
+            margin: 0 auto;
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        .profile-container img {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            margin-bottom: 20px;
+        }
+        .profile-container input[type="file"] {
+            margin: 10px 0;
+        }
+        .profile-container button {
+            padding: 10px 20px;
+            background-color: #34c759;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .profile-container button:hover {
+            background-color: #2db34a;
+        }
+        #message {
+            margin-top: 10px;
+            color: #f44336;
+        }
+    </style>
+</head>
+<body>
+    <div class="profile-container">
+        <h2>الملف الشخصي</h2>
+        <img id="profilePicture" src="/default-avatar.png" alt="الصورة الشخصية">
+        <form id="profileForm">
+            <input type="file" id="profilePictureInput" accept="image/*" required>
+            <button type="submit">تحديث الصورة</button>
+        </form>
+        <div id="message"></div>
+        <button onclick="window.location.href='/chat'">العودة إلى المحادثة</button>
+    </div>
 
+    <script>
+        // جلب الصورة الشخصية الحالية
+        async function fetchProfilePicture() {
+            try {
+                const response = await fetch('/api/users');
+                if (!response.ok) throw new Error('فشل في جلب بيانات المستخدم');
+                const users = await response.json();
+                const user = users.find(u => u.username === (await fetchUsername()));
+                if (user && user.profilePicture) {
+                    document.getElementById('profilePicture').src = user.profilePicture;
+                }
+            } catch (error) {
+                console.error('خطأ في جلب الصورة الشخصية:', error);
+            }
+        }
+
+        // جلب اسم المستخدم
+        async function fetchUsername() {
+            const response = await fetch('/api/username');
+            const data = await response.json();
+            return data.username;
+        }
+
+        // تحديث الصورة الشخصية
+        document.getElementById('profileForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData();
+            const fileInput = document.getElementById('profilePictureInput');
+            formData.append('profilePicture', fileInput.files[0]);
+
+            try {
+                const response = await fetch('/api/upload-profile-picture', {
+                    method: 'POST',
+                    body: formData
+                });
+                if (!response.ok) throw new Error('فشل في تحديث الصورة');
+                document.getElementById('message').style.color = '#34c759';
+                document.getElementById('message').textContent = 'تم تحديث الصورة بنجاح';
+                fetchProfilePicture();
+            } catch (error) {
+                document.getElementById('message').style.color = '#f44336';
+                document.getElementById('message').textContent = 'فشل تحديث الصورة: ' + error.message;
+            }
+        });
+
+        fetchProfilePicture();
+    </script>
+</body>
+</html>
