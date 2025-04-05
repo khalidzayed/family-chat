@@ -171,7 +171,7 @@
         let currentUsername = null;
         let lastUserStatus = [];
         let lastUnreadCounts = {};
-        let typingTimeout; // لتتبع حالة الكتابة
+        let typingTimeout;
 
         async function fetchUsername() {
             try {
@@ -221,20 +221,17 @@
                 displayGroups();
             });
 
-            // مستمع لحدث الكتابة
             socket.on('typing', ({ sender, recipient, isGroup }) => {
                 if ((isGroupChat && isGroup && recipient === currentChat) ||
                     (!isGroupChat && !isGroup && sender === currentChat)) {
                     const typingIndicator = document.getElementById('typingIndicator');
                     typingIndicator.textContent = `${sender} يكتب الآن...`;
                     typingIndicator.style.display = 'block';
-                    // التمرير لأسفل للتأكد من رؤية المؤشر
                     const chatMessages = document.getElementById('chatMessages');
                     chatMessages.scrollTop = chatMessages.scrollHeight;
                 }
             });
 
-            // مستمع لحدث التوقف عن الكتابة
             socket.on('stopTyping', ({ sender, recipient, isGroup }) => {
                 if ((isGroupChat && isGroup && recipient === currentChat) ||
                     (!isGroupChat && !isGroup && sender === currentChat)) {
@@ -300,6 +297,9 @@
                                 li.onclick = () => startChat(user.username, false);
                                 userList.appendChild(li);
                             });
+                        } else {
+                            const userList = document.getElementById('users');
+                            userList.innerHTML = '<li style="color: red;">فشل جلب قائمة المستخدمين. حاول مرة أخرى لاحقًا.</li>';
                         }
                     }
                 }
@@ -324,7 +324,7 @@
                         </div>
                     `;
                     li.onclick = () => startChat(group.name, true);
-                    groupList.appendChild(li);
+ groupList.appendChild(li);
                 });
 
                 fetchUnreadMessages();
@@ -378,35 +378,7 @@
                         console.log(`إعادة المحاولة ${i + 1}/${retries} بعد ${delay} مللي ثانية...`);
                         await new Promise(resolve => setTimeout(resolve, delay));
                     } else {
-                        document.querySelectorAll('.user-list li').forEach(li => {
-                            const username = li.querySelector('span').textContent;
-                            const unreadCount = lastUnreadCounts[username] || 0;
-                            let badge = li.querySelector('.unread-count');
-                            if (!badge && unreadCount > 0) {
-                                badge = document.createElement('span');
-                                badge.className = 'unread-count';
-                                li.querySelector('div').appendChild(badge);
-                            }
-                            if (badge) {
-                                badge.textContent = unreadCount;
-                                badge.style.display = unreadCount > 0 ? 'inline-block' : 'none';
-                            }
-                        });
-
-                        document.querySelectorAll('.group-list li').forEach(li => {
-                            const groupName = li.querySelector('span').textContent;
-                            const unreadCount = lastUnreadCounts[groupName] || 0;
-                            let badge = li.querySelector('.unread-count');
-                            if (!badge && unreadCount > 0) {
-                                badge = document.createElement('span');
-                                badge.className = 'unread-count';
-                                li.querySelector('div').appendChild(badge);
-                            }
-                            if (badge) {
-                                badge.textContent = unreadCount;
-                                badge.style.display = unreadCount > 0 ? 'inline-block' : 'none';
-                            }
-                        });
+                        console.warn('فشل جلب عدد الرسائل غير المقروءة بعد كل المحاولات. استخدام البيانات القديمة.');
                     }
                 }
             }
@@ -450,7 +422,6 @@
             const message = messageInput.value.trim();
             if (!message || !currentChat) return;
 
-            // إرسال حدث التوقف عن الكتابة عند إرسال الرسالة
             socket.emit('stopTyping', {
                 recipient: currentChat,
                 isGroup: isGroupChat
@@ -464,24 +435,21 @@
             messageInput.value = '';
         }
 
-        // مستمع لحدث الكتابة
         document.getElementById('messageInput').addEventListener('input', () => {
             if (!currentChat) return;
 
-            // إرسال حدث الكتابة
             socket.emit('typing', {
                 recipient: currentChat,
                 isGroup: isGroupChat
             });
 
-            // إعادة تعيين المؤقت لإرسال stopTyping
             clearTimeout(typingTimeout);
             typingTimeout = setTimeout(() => {
                 socket.emit('stopTyping', {
                     recipient: currentChat,
                     isGroup: isGroupChat
                 });
-            }, 2000); // بعد 2 ثانية من التوقف عن الكتابة
+            }, 2000);
         });
 
         document.getElementById('messageInput').addEventListener('keypress', (e) => {
