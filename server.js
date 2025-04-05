@@ -67,10 +67,9 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://khalidzayed9:Mihyar%4
     initializeUsers();
 }).catch(err => {
     console.error('فشل الاتصال بـ MongoDB:', err);
-    process.exit(1); // إنهاء العملية إذا فشل الاتصال
+    process.exit(1);
 });
 
-// معالجة الأخطاء غير المتوقعة
 process.on('uncaughtException', (err) => {
     console.error('خطأ غير متوقع:', err);
     process.exit(1);
@@ -470,6 +469,26 @@ io.on('connection', async (socket) => {
         } catch (err) {
             console.error('خطأ أثناء حفظ الرسالة:', err);
         }
+    });
+
+    // حدث الكتابة
+    socket.on('typing', ({ recipient, isGroup }) => {
+        const room = isGroup ? recipient : [socket.username, recipient].sort().join('-');
+        io.to(room).emit('typing', {
+            sender: socket.username,
+            recipient,
+            isGroup
+        });
+    });
+
+    // حدث التوقف عن الكتابة
+    socket.on('stopTyping', ({ recipient, isGroup }) => {
+        const room = isGroup ? recipient : [socket.username, recipient].sort().join('-');
+        io.to(room).emit('stopTyping', {
+            sender: socket.username,
+            recipient,
+            isGroup
+        });
     });
 
     socket.on('disconnect', async () => {
