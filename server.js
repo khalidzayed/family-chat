@@ -25,17 +25,18 @@ app.use(express.static(__dirname));
 const upload = multer({
     dest: 'uploads/',
     fileFilter: (req, file, cb) => {
-        if (!file.mimetype.startsWith('image/')) {
-            return cb(new Error('يُسمح برفع الصور فقط!'), false);
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'audio/webm', 'audio/mpeg'];
+        if (!allowedTypes.includes(file.mimetype)) {
+            return cb(new Error('يُسمح برفع الصور أو التسجيلات الصوتية فقط!'), false);
         }
         cb(null, true);
     },
-    limits: { fileSize: 5 * 1024 * 1024 } // الحد الأقصى 5 ميجابايت
+    limits: { fileSize: 10 * 1024 * 1024 } // الحد الأقصى 10 ميجابايت
 });
 
 // إعداد Cloudinary
 cloudinary.config({
-     cloud_name: 'diara9dzg', // استبدل بـ Cloud Name الخاص بك
+      cloud_name: 'diara9dzg', // استبدل بـ Cloud Name الخاص بك
     api_key: '969277843346462',       // استبدل بـ API Key الخاص بك
     api_secret: 'uuee0QzBTNDVB-809XDoJCDRJhE'  // استبدل بـ API Secret الخاص بك
 });
@@ -107,7 +108,9 @@ const MessageSchema = new mongoose.Schema({
     message: { type: String, required: true },
     timestamp: { type: Date, default: Date.now },
     isGroup: { type: Boolean, default: false },
-    isRead: { type: Boolean, default: false }
+    isRead: { type: Boolean, default: false },
+    messageType: { type: String, default: 'text' }, // text, image, audio
+    deletedBy: [{ type: String }]
 });
 
 const Message = mongoose.model('Message', MessageSchema);
@@ -163,7 +166,10 @@ app.get('/api/messages', isAuthenticated, async (req, res) => {
                 ],
                 isGroup: false
             };
-        const messages = await Message.find(query).sort({ timestamp: 1 }).limit(50);
+        const messages = await Message.find({
+            ...query,
+            deletedBy: { $ne: req.session.user }
+        }).sort({ timestamp: 1 }).limit(50);
 
         if (!isGroup) {
             await Message.updateMany(
@@ -179,7 +185,7 @@ app.get('/api/messages', isAuthenticated, async (req, res) => {
 
         const decryptedMessages = messages.map(msg => ({
             ...msg._doc,
-            message: CryptoJS.AES.decrypt(msg.message, ENCRYPTION_KEY).toString(CryptoJS.enc.Utf8)
+            message: msg.messageType === 'text' ? CryptoJS.AES.decrypt(msg.message, ENCRYPTION_KEY).toString(CryptoJS.enc.Utf8) : msg.message
         }));
         res.json(decryptedMessages);
     } catch (err) {
@@ -221,16 +227,23 @@ app.delete('/api/users/:username', isAuthenticated, async (req, res) => {
     }
 });
 
-app.delete('/api/messages', isAuthenticated, async (req, res) => {
-    const { message } = req.body;
+app.post('/api/upload-file', upload.single('file'), async (req, res) => {
     try {
-        const [username, msgWithTime] = message.split(' [');
-        const msg = msgWithTime.split(']: ')[1];
-        const encryptedMsg = CryptoJS.AES.encrypt(msg, ENCRYPTION_KEY).toString();
-        await Message.deleteOne({ username, message: encryptedMsg });
-        res.status(200).send('تم حذف الرسالة');
+        if (!req.file) {
+            return res.status(400).send('لم يتم رفع أي ملف');
+        }
+
+        console.log('جاري رفع الملف إلى Cloudinary:', req.file.path);
+        const result = await cloudinary.uploader.upload(req.file.path, {
+            resource_type: req.file.mimetype.startsWith('audio/') ? 'video' : 'image',
+            folder: 'chat_files'
+        });
+        console.log('تم رفع الملف بنجاح إلى Cloudinary:', result.secure_url);
+
+        res.json({ url: result.secure_url });
     } catch (err) {
-        res.status(500).send('فشل حذف الرسالة');
+        console.error('خطأ أثناء رفع الملف:', err);
+        res.status(500).send('فشل رفع الملف: ' + err.message);
     }
 });
 
@@ -435,29 +448,31 @@ io.on('connection', async (socket) => {
         console.log(`${socket.username} انضم إلى الغرفة: ${room}`);
     });
 
-    socket.on('privateMessage', async ({ recipient, message, isGroup }) => {
-        if (!message || message.trim() === '') return;
+    socket.on('privateMessage', async ({ recipient, message, isGroup, messageType }) => {
+        if (!message || message.trim() === '' && messageType === 'text') return;
 
         const room = isGroup ? recipient : [socket.username, recipient].sort().join('-');
-        const encryptedMsg = CryptoJS.AES.encrypt(message, ENCRYPTION_KEY).toString();
+        const encryptedMsg = messageType === 'text' ? CryptoJS.AES.encrypt(message, ENCRYPTION_KEY).toString() : message;
         const msgData = new Message({
             sender: socket.username,
             recipient: isGroup ? recipient : recipient,
             message: encryptedMsg,
             isGroup,
             timestamp: new Date(),
-            isRead: false
+            isRead: false,
+            messageType
         });
 
         try {
             await msgData.save();
-            const currentTime = new Date().toLocaleTimeString('ar-EG');
             const fullMessage = {
+                _id: msgData._id,
                 sender: socket.username,
                 message,
                 timestamp: new Date().toISOString(),
                 isGroup,
-                isRead: false
+                isRead: false,
+                messageType
             };
             io.to(room).emit('message', fullMessage);
 
@@ -488,6 +503,28 @@ io.on('connection', async (socket) => {
             recipient,
             isGroup
         });
+    });
+
+    socket.on('deleteMessage', async ({ messageId, deletedBy, isSender }) => {
+        try {
+            const message = await Message.findById(messageId);
+            if (!message) return;
+
+            if (isSender) {
+                await Message.deleteOne({ _id: messageId });
+                const room = message.isGroup ? message.recipient : [message.sender, message.recipient].sort().join('-');
+                io.to(room).emit('deleteMessage', { messageId, deletedBy });
+            } else {
+                await Message.updateOne(
+                    { _id: messageId },
+                    { $addToSet: { deletedBy: deletedBy } }
+                );
+                const room = message.isGroup ? message.recipient : [message.sender, message.recipient].sort().join('-');
+                io.to(room).emit('deleteMessage', { messageId, deletedBy });
+            }
+        } catch (err) {
+            console.error('خطأ أثناء حذف الرسالة:', err);
+        }
     });
 
     socket.on('disconnect', async () => {
