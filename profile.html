@@ -25,9 +25,6 @@
             border-radius: 50%;
             margin-bottom: 20px;
         }
-        .profile-container input[type="file"] {
-            margin: 10px 0;
-        }
         .profile-container button {
             padding: 10px 20px;
             background-color: #34c759;
@@ -35,6 +32,7 @@
             border: none;
             border-radius: 5px;
             cursor: pointer;
+            margin: 10px;
         }
         .profile-container button:hover {
             background-color: #2db34a;
@@ -48,15 +46,14 @@
 <body>
     <div class="profile-container">
         <h2>الملف الشخصي</h2>
-        <img id="profilePicture" src="/default-avatar.png" alt="الصورة الشخصية">
-        <form id="profileForm">
-            <input type="file" id="profilePictureInput" accept="image/*" required>
-            <button type="submit">تحديث الصورة</button>
-        </form>
+        <img id="profilePicture" src="https://res.cloudinary.com/demo/image/upload/v1312461204/sample.jpg" alt="الصورة الشخصية">
+        <button onclick="uploadProfilePicture()">تحديث الصورة</button>
         <div id="message"></div>
         <button onclick="window.location.href='/chat'">العودة إلى المحادثة</button>
     </div>
 
+    <!-- إضافة Cloudinary Upload Widget -->
+    <script src="https://widget.cloudinary.com/v2.0/global/all.js" type="text/javascript"></script>
     <script>
         // جلب الصورة الشخصية الحالية
         async function fetchProfilePicture() {
@@ -80,27 +77,41 @@
             return data.username;
         }
 
-        // تحديث الصورة الشخصية
-        document.getElementById('profileForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const formData = new FormData();
-            const fileInput = document.getElementById('profilePictureInput');
-            formData.append('profilePicture', fileInput.files[0]);
-
-            try {
-                const response = await fetch('/api/upload-profile-picture', {
-                    method: 'POST',
-                    body: formData
-                });
-                if (!response.ok) throw new Error('فشل في تحديث الصورة');
-                document.getElementById('message').style.color = '#34c759';
-                document.getElementById('message').textContent = 'تم تحديث الصورة بنجاح';
-                fetchProfilePicture();
-            } catch (error) {
-                document.getElementById('message').style.color = '#f44336';
-                document.getElementById('message').textContent = 'فشل تحديث الصورة: ' + error.message;
-            }
-        });
+        // رفع الصورة باستخدام Cloudinary Upload Widget
+        function uploadProfilePicture() {
+            cloudinary.openUploadWidget({
+                cloudName: 'diara9dzg', // استبدل بـ Cloud Name الخاص بك
+                uploadPreset: 'ml_default', // تحتاج إلى إنشاء Upload Preset في Cloudinary
+                sources: ['local', 'url', 'camera'],
+                cropping: true,
+                croppingAspectRatio: 1,
+                multiple: false,
+                folder: 'profile_pictures',
+                maxImageWidth: 100,
+                maxImageHeight: 100
+            }, async (error, result) => {
+                if (!error && result && result.event === 'success') {
+                    const imageUrl = result.info.secure_url;
+                    try {
+                        const response = await fetch('/api/upload-profile-picture', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ profilePicture: imageUrl })
+                        });
+                        if (!response.ok) throw new Error('فشل في تحديث الصورة');
+                        document.getElementById('message').style.color = '#34c759';
+                        document.getElementById('message').textContent = 'تم تحديث الصورة بنجاح';
+                        fetchProfilePicture();
+                    } catch (error) {
+                        document.getElementById('message').style.color = '#f44336';
+                        document.getElementById('message').textContent = 'فشل تحديث الصورة: ' + error.message;
+                    }
+                } else if (error) {
+                    document.getElementById('message').style.color = '#f44336';
+                    document.getElementById('message').textContent = 'فشل رفع الصورة: ' + error.message;
+                }
+            });
+        }
 
         fetchProfilePicture();
     </script>
