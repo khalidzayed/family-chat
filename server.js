@@ -35,7 +35,7 @@ const upload = multer({
 
 // إعداد Cloudinary
 cloudinary.config({
-    cloud_name: 'diara9dzg', // استبدل بـ Cloud Name الخاص بك
+     cloud_name: 'diara9dzg', // استبدل بـ Cloud Name الخاص بك
     api_key: '969277843346462',       // استبدل بـ API Key الخاص بك
     api_secret: 'uuee0QzBTNDVB-809XDoJCDRJhE'  // استبدل بـ API Secret الخاص بك
 });
@@ -65,9 +65,22 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://khalidzayed9:Mihyar%4
 }).then(() => {
     console.log('متصل بـ MongoDB بنجاح');
     initializeUsers();
-}).catch(err => console.error('فشل الاتصال بـ MongoDB:', err));
+}).catch(err => {
+    console.error('فشل الاتصال بـ MongoDB:', err);
+    process.exit(1); // إنهاء العملية إذا فشل الاتصال
+});
 
-// نموذج المستخدم مع حقل الصورة الشخصية وآخر ظهور
+// معالجة الأخطاء غير المتوقعة
+process.on('uncaughtException', (err) => {
+    console.error('خطأ غير متوقع:', err);
+    process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('رفض وعد غير معالج:', promise, 'السبب:', reason);
+    process.exit(1);
+});
+
 const UserSchema = new mongoose.Schema({
     username: { type: String, unique: true, required: true },
     password: { type: String, required: true },
@@ -171,6 +184,7 @@ app.get('/api/messages', isAuthenticated, async (req, res) => {
         }));
         res.json(decryptedMessages);
     } catch (err) {
+        console.error('خطأ في جلب الرسائل:', err);
         res.status(500).json({ error: 'فشل جلب الرسائل' });
     }
 });
@@ -180,6 +194,7 @@ app.get('/api/users', isAuthenticated, async (req, res) => {
         const users = await User.find({}, 'username profilePicture');
         res.json(users);
     } catch (err) {
+        console.error('خطأ في جلب المستخدمين:', err);
         res.status(500).json({ error: 'فشل جلب المستخدمين' });
     }
 });
@@ -262,6 +277,7 @@ app.get('/api/user-status', isAuthenticated, async (req, res) => {
         }));
         res.json(userStatus);
     } catch (err) {
+        console.error('خطأ في جلب حالة المستخدمين:', err);
         res.status(500).json({ error: 'فشل جلب حالة المستخدمين' });
     }
 });
@@ -326,6 +342,7 @@ app.get('/api/unread-messages', isAuthenticated, async (req, res) => {
 
         res.json(unreadCounts);
     } catch (err) {
+        console.error('خطأ في جلب عدد الرسائل غير المقروءة:', err);
         res.status(500).json({ error: 'فشل جلب عدد الرسائل غير المقروءة' });
     }
 });
@@ -354,6 +371,7 @@ app.get('/api/groups', isAuthenticated, async (req, res) => {
         const groups = await Group.find({ members: req.session.user });
         res.json(groups);
     } catch (err) {
+        console.error('خطأ في جلب المجموعات:', err);
         res.status(500).json({ error: 'فشل جلب المجموعات' });
     }
 });
@@ -390,11 +408,19 @@ app.get('/logout', (req, res) => {
 
 const connectedUsers = new Set();
 io.use((socket, next) => {
-    const username = socket.handshake.query.username;
-    if (username && username !== 'null') { // التأكد من أن اسم المستخدم ليس null
+    let username = socket.handshake.query.username;
+    try {
+        username = decodeURIComponent(username);
+    } catch (err) {
+        console.error('خطأ في فك تشفير اسم المستخدم:', err);
+        return next(new Error('اسم مستخدم غير صالح'));
+    }
+    if (username && username !== 'null') {
         socket.username = username;
+        console.log(`مستخدم متصل: ${username}`);
         return next();
     }
+    console.error('اسم المستخدم غير موجود أو غير صالح:', username);
     next(new Error('غير مصادق'));
 });
 
